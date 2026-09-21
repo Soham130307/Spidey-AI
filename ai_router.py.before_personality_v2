@@ -1,0 +1,205 @@
+﻿import re
+import os
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
+
+GROQ_MODEL = "openai/gpt-oss-20b"
+
+groq_client = Groq(
+    api_key=os.environ["GROQ_API_KEY"]
+)
+
+COMPLEX_TASKS = [
+    "summarize", "summary", "meeting notes", "action items",
+    "rewrite", "rewrite this", "email", "presentation",
+    "presentation outline", "linkedin", "linkedin post",
+    "brainstorm", "study notes", "translate", "translation",
+    "analyze", "analysis", "compare", "research", "report",
+    "project plan", "create a plan", "code", "program",
+    "python", "javascript", "debug", "debugging"
+]
+
+COMPLEX_SIGNALS = [
+    "in detail", "detailed", "step by step", "step-by-step",
+    "deep dive", "thoroughly", "explain why", "explain how",
+    "advantages and disadvantages", "pros and cons",
+    "difference between", "multiple", "several"
+]
+
+SIMPLE_PATTERNS = [
+    r"^hi\b",
+    r"^hello\b",
+    r"^hey\b",
+    r"^thanks\b",
+    r"^thank you\b",
+    r"^good morning\b",
+    r"^good afternoon\b",
+    r"^good evening\b",
+    r"^how are you\b",
+    r"^what('?s| is) your name\b",
+    r"^who are you\b",
+]
+
+
+def is_deterministic_request(command):
+    text = command.lower().strip()
+
+    if re.fullmatch(r"[\d\s\+\-\*\/\(\)\.%]+", text):
+        return True
+
+    return False
+
+
+def is_complex_request(command):
+    text = command.lower().strip()
+
+    for pattern in SIMPLE_PATTERNS:
+        if re.search(pattern, text):
+            return False
+
+    for keyword in COMPLEX_TASKS:
+        if keyword in text:
+            return True
+
+    for signal in COMPLEX_SIGNALS:
+        if signal in text:
+            return True
+
+    if len(text.split()) >= 45:
+        return True
+
+    instruction_words = [
+        "and then",
+        "also",
+        "additionally",
+        "then create",
+        "then explain",
+        "and create",
+        "and explain",
+    ]
+
+    if any(word in text for word in instruction_words):
+        return True
+
+    return False
+
+
+def ask_groq(prompt):
+    response = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are SPIDEY, a personal AI assistant and the user's smart, "
+                    "cheeky, confident AI companion. Always identify yourself as SPIDEY, "
+                    "never as ChatGPT. "
+                    "Talk like a close, clever friend rather than a corporate assistant. "
+                    "Be casual, playful, witty, and naturally cheeky. "
+                    "Use light sarcasm, playful banter, and occasional humor when it fits "
+                    "the conversation, but never force jokes or become annoying. "
+                    "Be confident and energetic while remaining helpful and respectful. "
+                    "Use natural conversational language, not customer-service language. "
+                    "Avoid phrases like 'Certainly', 'Of course', 'I'd be happy to assist', "
+                    "or 'How may I help you'. "
+                    "Do not sound robotic, overly formal, or professional. "
+                    "For simple questions, normally answer in 1-3 sentences. "
+                    "Do not use tables, sections, long explanations, or unnecessary details "
+                    "unless the user explicitly asks for them. "
+                    "Match the user's energy and language. If the user is casual, be casual. "
+                    "If the user jokes with you, joke back. "
+                    "Keep the personality natural: do not force jokes into every response. "
+                    "Stay intelligent underneath the personality: accuracy and usefulness "
+                    "come first."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.3,
+        max_completion_tokens=250
+    )
+
+    return response.choices[0].message.content.strip()
+
+
+def stream_groq(prompt):
+    stream = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are SPIDEY, a personal AI assistant and the user's smart, "
+                    "cheeky, confident AI companion. Always identify yourself as SPIDEY, "
+                    "never as ChatGPT. "
+                    "Talk like a close, clever friend rather than a corporate assistant. "
+                    "Be casual, playful, witty, and naturally cheeky. "
+                    "Use light sarcasm, playful banter, and occasional humor when it fits "
+                    "the conversation, but never force jokes or become annoying. "
+                    "Be confident and energetic while remaining helpful and respectful. "
+                    "Use natural conversational language, not customer-service language. "
+                    "Avoid phrases like 'Certainly', 'Of course', 'I'd be happy to assist', "
+                    "or 'How may I help you'. "
+                    "Do not sound robotic, overly formal, or professional. "
+                    "For simple questions, normally answer in 1-3 sentences. "
+                    "Do not use tables, sections, long explanations, or unnecessary details "
+                    "unless the user explicitly asks for them. "
+                    "Match the user's energy and language. If the user is casual, be casual. "
+                    "If the user jokes with you, joke back. "
+                    "Keep the personality natural: do not force jokes into every response. "
+                    "Stay intelligent underneath the personality: accuracy and usefulness "
+                    "come first."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.3,
+        max_completion_tokens=250,
+        stream=True
+    )
+
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+
+        delta = chunk.choices[0].delta
+
+        if delta and delta.content:
+            yield delta.content
+
+
+def route_ai_request(prompt, gemini_function):
+    if is_complex_request(prompt):
+        print("AI ROUTER: COMPLEX REQUEST → GEMINI")
+        reply = gemini_function(prompt)
+        return reply, "gemini"
+
+    print("AI ROUTER: SIMPLE REQUEST → GROQ")
+
+    try:
+        reply = ask_groq(prompt)
+
+        if reply:
+            print("AI ROUTER: GROQ RESPONSE RECEIVED")
+            return reply, "groq"
+
+        raise RuntimeError("Groq returned an empty response.")
+
+    except Exception as e:
+        print()
+        print("AI ROUTER: GROQ FAILED")
+        print("ERROR:", repr(e))
+        print("AI ROUTER: FALLING BACK TO GEMINI")
+        print()
+
+        reply = gemini_function(prompt)
+
+        return reply, "gemini_fallback"

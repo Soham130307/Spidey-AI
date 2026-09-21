@@ -1,0 +1,27 @@
+[
+  {
+    "id": "1788547058927",
+    "trigger_time": "2026-09-05T00:07:53.927025",
+    "message": "Master, your alarm is ringing."
+  },
+  {
+    "id": "1788547877083",
+    "trigger_time": "2026-09-05T00:21:32.083568",
+    "message": "Master, your alarm is ringing."
+  },
+  {
+    "id": "1788548241148",
+    "trigger_time": "2026-09-05T00:27:36.148927",
+    "message": "Master, your alarm is ringing."
+  },
+  {
+    "id": "1788548352142",
+    "trigger_time": "2026-09-05T00:29:27.142043",
+    "message": "Master, your alarm is ringing."
+  },
+  {
+    "id": "1788548671808",
+    "trigger_time": "2026-09-05T00:34:46.808202",
+    "message": "Master, your alarm is ringing."
+  }
+]

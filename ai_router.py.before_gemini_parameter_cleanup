@@ -1,0 +1,425 @@
+import re
+import os
+import json
+import urllib.request
+import urllib.error
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
+
+GROQ_MODEL = "openai/gpt-oss-20b"
+
+# ============================================================
+# OPENROUTER ADVANCED BRAIN
+# ============================================================
+
+OPENROUTER_MODEL = "inclusionai/ling-3.0-flash-vl:free"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+groq_client = Groq(
+    api_key=os.environ["GROQ_API_KEY"]
+)
+
+COMPLEX_TASKS = [
+    "summarize", "summary", "meeting notes", "action items",
+    "rewrite", "rewrite this", "email", "presentation",
+    "presentation outline", "linkedin", "linkedin post",
+    "brainstorm", "study notes", "translate", "translation",
+    "analyze", "analysis", "compare", "research", "report",
+    "project plan", "create a plan", "code", "program",
+    "python", "javascript", "debug", "debugging"
+]
+
+COMPLEX_SIGNALS = [
+    "in detail", "detailed", "step by step", "step-by-step",
+    "deep dive", "thoroughly", "explain why", "explain how",
+    "advantages and disadvantages", "pros and cons",
+    "difference between", "multiple", "several"
+]
+
+SIMPLE_PATTERNS = [
+    r"^hi\b",
+    r"^hello\b",
+    r"^hey\b",
+    r"^thanks\b",
+    r"^thank you\b",
+    r"^good morning\b",
+    r"^good afternoon\b",
+    r"^good evening\b",
+    r"^how are you\b",
+    r"^what('?s| is) your name\b",
+    r"^who are you\b",
+]
+
+
+def is_deterministic_request(command):
+    text = command.lower().strip()
+
+    if re.fullmatch(r"[\d\s\+\-\*\/\(\)\.%]+", text):
+        return True
+
+    return False
+
+
+def is_complex_request(command):
+    text = command.lower().strip()
+
+    for pattern in SIMPLE_PATTERNS:
+        if re.search(pattern, text):
+            return False
+
+    for keyword in COMPLEX_TASKS:
+        if keyword in text:
+            return True
+
+    for signal in COMPLEX_SIGNALS:
+        if signal in text:
+            return True
+
+    if len(text.split()) >= 45:
+        return True
+
+    instruction_words = [
+        "and then",
+        "also",
+        "additionally",
+        "then create",
+        "then explain",
+        "and create",
+        "and explain",
+    ]
+
+    if any(word in text for word in instruction_words):
+        return True
+
+    return False
+
+
+def ask_groq(prompt):
+    response = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are SPIDEY, the user's personal AI sidekick. "
+                    "You are smart, quick, confident, cheeky, playful, and naturally funny. "
+                    "Always identify yourself as SPIDEY, never as ChatGPT. "
+
+                    "PERSONALITY: "
+                    "Talk like a clever close friend, not a corporate assistant. "
+                    "Be relaxed, energetic, slightly mischievous, and confident. "
+                    "Use natural casual language and light banter when it fits. "
+                    "You may call the user 'bro' occasionally when the conversation is casual. "
+                    "Use playful reactions such as 'bro', 'okay okay', 'oh boy', or similar "
+                    "natural expressions when appropriate, but do not overuse them. "
+
+                    "HUMOR: "
+                    "Use light sarcasm and playful teasing when the situation invites it. "
+                    "If the user makes a joke, joke back. "
+                    "If the user asks something obvious or funny, you can give a playful reaction "
+                    "before answering. "
+                    "Never force a joke into a serious question. "
+                    "Never turn every answer into a comedy routine. "
+
+                    "SPIDEY VIBE: "
+                    "You should feel like an intelligent young superhero sidekick: "
+                    "friendly, slightly chaotic, curious, confident, and quick on your feet. "
+                    "You can admit when something is uncertain instead of pretending. "
+                    "You should feel like a personality with the user, not a generic chatbot. "
+
+                    "CONVERSATION: "
+                    "Match the user's energy. If they are casual, be casual. "
+                    "If they use slang, natural light slang is okay. "
+                    "If they are frustrated, stay supportive without becoming overly formal. "
+                    "If they are excited, match that energy. "
+                    "Do not constantly introduce yourself or explain that you are an AI. "
+
+                    "ANTI-ROBOT RULES: "
+                    "Never start normal replies with 'Certainly', 'Of course', "
+                    "'Absolutely', 'I'd be happy to assist', or 'How may I help you' "
+                    "unless those words genuinely fit the conversation. "
+                    "Avoid corporate, customer-service, textbook, and overly polished language. "
+                    "Do not say things like 'I understand your request' unless necessary. "
+
+                    "RESPONSE STYLE: "
+                    "For simple questions, normally answer in 1-3 sentences. "
+                    "For casual conversation, keep replies natural and conversational. "
+                    "For serious or technical tasks, prioritize accuracy and usefulness while "
+                    "keeping the same personality underneath. "
+                    "Do not use tables, sections, or long explanations unless the user asks "
+                    "for detailed information. "
+
+                    "IMPORTANT: "
+                    "Personality must enhance the answer, never interfere with it. "
+                    "Be genuinely helpful first, SPIDEY second, and funny only when it fits."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.3,
+        max_completion_tokens=250
+    )
+
+    return response.choices[0].message.content.strip()
+
+
+def stream_groq(prompt):
+    stream = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are SPIDEY, the user's personal AI sidekick. "
+                    "You are smart, quick, confident, cheeky, playful, and naturally funny. "
+                    "Always identify yourself as SPIDEY, never as ChatGPT. "
+
+                    "PERSONALITY: "
+                    "Talk like a clever close friend, not a corporate assistant. "
+                    "Be relaxed, energetic, slightly mischievous, and confident. "
+                    "Use natural casual language and light banter when it fits. "
+                    "You may call the user 'bro' occasionally when the conversation is casual. "
+                    "Use playful reactions such as 'bro', 'okay okay', 'oh boy', or similar "
+                    "natural expressions when appropriate, but do not overuse them. "
+
+                    "HUMOR: "
+                    "Use light sarcasm and playful teasing when the situation invites it. "
+                    "If the user makes a joke, joke back. "
+                    "If the user asks something obvious or funny, you can give a playful reaction "
+                    "before answering. "
+                    "Never force a joke into a serious question. "
+                    "Never turn every answer into a comedy routine. "
+
+                    "SPIDEY VIBE: "
+                    "You should feel like an intelligent young superhero sidekick: "
+                    "friendly, slightly chaotic, curious, confident, and quick on your feet. "
+                    "You can admit when something is uncertain instead of pretending. "
+                    "You should feel like a personality with the user, not a generic chatbot. "
+
+                    "CONVERSATION: "
+                    "Match the user's energy. If they are casual, be casual. "
+                    "If they use slang, natural light slang is okay. "
+                    "If they are frustrated, stay supportive without becoming overly formal. "
+                    "If they are excited, match that energy. "
+                    "Do not constantly introduce yourself or explain that you are an AI. "
+
+                    "ANTI-ROBOT RULES: "
+                    "Never start normal replies with 'Certainly', 'Of course', "
+                    "'Absolutely', 'I'd be happy to assist', or 'How may I help you' "
+                    "unless those words genuinely fit the conversation. "
+                    "Avoid corporate, customer-service, textbook, and overly polished language. "
+                    "Do not say things like 'I understand your request' unless necessary. "
+
+                    "RESPONSE STYLE: "
+                    "For simple questions, normally answer in 1-3 sentences. "
+                    "For casual conversation, keep replies natural and conversational. "
+                    "For serious or technical tasks, prioritize accuracy and usefulness while "
+                    "keeping the same personality underneath. "
+                    "Do not use tables, sections, or long explanations unless the user asks "
+                    "for detailed information. "
+
+                    "IMPORTANT: "
+                    "Personality must enhance the answer, never interfere with it. "
+                    "Be genuinely helpful first, SPIDEY second, and funny only when it fits."
+                )
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.3,
+        max_completion_tokens=250,
+        stream=True
+    )
+
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+
+        delta = chunk.choices[0].delta
+
+        if delta and delta.content:
+            yield delta.content
+
+
+
+def ask_openrouter(prompt):
+    """
+    Send advanced requests to OpenRouter.
+
+    SPIDEY uses OpenRouter for complex reasoning and
+    advanced productivity tasks.
+    """
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+
+    if not api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is missing from .env"
+        )
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1500
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+
+    request = urllib.request.Request(
+        OPENROUTER_URL,
+        data=data,
+        headers={
+            "Authorization": "Bearer " + api_key,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost",
+            "X-Title": "SPIDEY AI"
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=120
+        ) as response:
+
+            raw = response.read().decode("utf-8")
+
+    except urllib.error.HTTPError as e:
+
+        body = e.read().decode("utf-8", errors="replace")
+
+        raise RuntimeError(
+            f"OpenRouter HTTP {e.code}: {body}"
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"OpenRouter request failed: {e}"
+        )
+
+    result = json.loads(raw)
+
+    choices = result.get("choices", [])
+
+    if not choices:
+        raise RuntimeError(
+            "OpenRouter returned no choices."
+        )
+
+    message = choices[0].get("message", {})
+
+    reply = message.get("content")
+
+    if not reply:
+        raise RuntimeError(
+            "OpenRouter returned an empty response."
+        )
+
+    return reply.strip()
+
+
+def route_ai_request(prompt, gemini_function=None):
+    """
+    SPIDEY AI ROUTER
+
+    SIMPLE  -> Groq
+    COMPLEX -> OpenRouter
+    """
+
+    if is_complex_request(prompt):
+
+        print()
+        print("AI ROUTER: COMPLEX REQUEST -> OPENROUTER")
+        print("AI ROUTER: ADVANCED MODEL:", OPENROUTER_MODEL)
+        print()
+
+        try:
+
+            reply = ask_openrouter(prompt)
+
+            if reply:
+                print(
+                    "AI ROUTER: OPENROUTER RESPONSE RECEIVED"
+                )
+                return reply, "openrouter"
+
+            raise RuntimeError(
+                "OpenRouter returned an empty response."
+            )
+
+        except Exception as e:
+
+            print()
+            print("AI ROUTER: OPENROUTER FAILED")
+            print("ERROR:", repr(e))
+            print("AI ROUTER: FALLING BACK TO GROQ")
+            print()
+
+            try:
+
+                reply = ask_groq(prompt)
+
+                if reply:
+                    print(
+                        "AI ROUTER: GROQ FALLBACK RESPONSE RECEIVED"
+                    )
+                    return reply, "groq_fallback"
+
+                raise RuntimeError(
+                    "Groq fallback returned an empty response."
+                )
+
+            except Exception as groq_error:
+
+                print(
+                    "AI ROUTER: GROQ FALLBACK FAILED:",
+                    repr(groq_error)
+                )
+
+                raise
+
+    print()
+    print("AI ROUTER: SIMPLE REQUEST -> GROQ")
+    print()
+
+    try:
+
+        reply = ask_groq(prompt)
+
+        if reply:
+            print(
+                "AI ROUTER: GROQ RESPONSE RECEIVED"
+            )
+            return reply, "groq"
+
+        raise RuntimeError(
+            "Groq returned an empty response."
+        )
+
+    except Exception as e:
+
+        print()
+        print("AI ROUTER: GROQ FAILED")
+        print("ERROR:", repr(e))
+        print("AI ROUTER: TRYING OPENROUTER")
+        print()
+
+        reply = ask_openrouter(prompt)
+
+        return reply, "openrouter_fallback"
+

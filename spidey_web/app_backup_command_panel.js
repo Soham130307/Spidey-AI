@@ -1,0 +1,2330 @@
+// ============================================================
+// SPIDEY HUD // APP.JS
+// ============================================================
+
+const $ = id => document.getElementById(id);
+
+
+// ============================================================
+// GLOBAL STATE
+// ============================================================
+
+const state = {
+    started: performance.now(),
+    net: Array(80).fill(0),
+    lastBackendState: "",
+    lastBackendMessage: ""
+};
+
+
+// ============================================================
+// LOG SYSTEM
+// ============================================================
+
+function log(message) {
+
+    const box = $("log");
+
+    if (!box || !message) {
+        return;
+    }
+
+    const row = document.createElement("div");
+
+    row.className = "line";
+
+    const stamp =
+        new Date().toLocaleTimeString(
+            [],
+            {
+                hour12: false
+            }
+        );
+
+    row.innerHTML =
+        `<span class="stamp">${stamp}</span>${message}`;
+
+    box.appendChild(row);
+
+    while (box.children.length > 9) {
+        box.removeChild(box.firstChild);
+    }
+
+    box.scrollTop = box.scrollHeight;
+}
+
+
+// ============================================================
+// CLOCK
+// ============================================================
+
+function clock() {
+
+    const d = new Date();
+
+    const t =
+        d.toLocaleTimeString(
+            [],
+            {
+                hour12: false
+            }
+        );
+
+    $("topTime").textContent = t;
+
+    $("bigTime").textContent = t;
+
+    $("date").textContent =
+        d.toLocaleDateString(
+            [],
+            {
+                weekday: "long",
+                day: "2-digit",
+                month: "long",
+                year: "numeric"
+            }
+        );
+}
+
+clock();
+
+setInterval(clock, 1000);
+
+
+// ============================================================
+// SPIDEY STATE
+// ============================================================
+
+function setState(
+    name,
+    message = ""
+) {
+
+    if (!name) {
+        return;
+    }
+
+    const cleanState =
+        name.toUpperCase();
+
+    $("mainState").textContent =
+        cleanState
+            .split("")
+            .join(" ");
+
+
+    // --------------------------------------------------------
+    // LEFT VOICE ENGINE MESSAGE
+    // --------------------------------------------------------
+
+    $("voiceState").textContent =
+        message ||
+        cleanState;
+
+
+    // --------------------------------------------------------
+    // CORE METER
+    // --------------------------------------------------------
+
+    let meter = "55%";
+
+    if (
+        cleanState === "LISTENING"
+    ) {
+
+        meter = "92%";
+
+    } else if (
+        cleanState === "THINKING"
+    ) {
+
+        meter = "76%";
+
+    } else if (
+        cleanState === "SPEAKING"
+    ) {
+
+        meter = "88%";
+    }
+
+    $("coreMeter").style.width =
+        meter;
+
+    document.body.dataset.state =
+        cleanState;
+}
+
+
+// ============================================================
+// PYTHON → HUD CONNECTION
+// ============================================================
+
+async function pollBackend() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/state?t=" +
+                Date.now(),
+                {
+                    cache: "no-store"
+                }
+            );
+
+
+        if (!response.ok) {
+            return;
+        }
+
+
+        const data =
+            await response.json();
+
+
+        const payload =
+            String(
+                data.state ||
+                "STANDBY"
+            );
+
+
+        const separator =
+            payload.indexOf("|");
+
+
+        let backendState =
+            payload;
+
+        let message = "";
+
+
+        // ----------------------------------------------------
+        // SPLIT STATE | MESSAGE
+        // ----------------------------------------------------
+
+        if (
+            separator !== -1
+        ) {
+
+            backendState =
+                payload
+                    .substring(
+                        0,
+                        separator
+                    )
+                    .trim();
+
+
+            message =
+                payload
+                    .substring(
+                        separator + 1
+                    )
+                    .trim();
+        }
+
+
+        backendState =
+            backendState.toUpperCase();
+
+
+        const validStates = [
+
+            "STANDBY",
+            "LISTENING",
+            "THINKING",
+            "SPEAKING"
+
+        ];
+
+
+        if (
+            !validStates.includes(
+                backendState
+            )
+        ) {
+
+            return;
+        }
+
+
+        // ----------------------------------------------------
+        // CHECK FOR CHANGES
+        // ----------------------------------------------------
+
+        const stateChanged =
+            backendState !==
+            state.lastBackendState;
+
+
+        const messageChanged =
+            message !==
+            state.lastBackendMessage;
+
+
+        // ----------------------------------------------------
+        // UPDATE LEFT PANEL
+        // ----------------------------------------------------
+
+        if (
+            stateChanged ||
+            messageChanged
+        ) {
+
+            state.lastBackendState =
+                backendState;
+
+            state.lastBackendMessage =
+                message;
+
+
+            setState(
+                backendState,
+                message
+            );
+        }
+
+
+        // ----------------------------------------------------
+        // UPDATE SPIDEY LOG
+        // ----------------------------------------------------
+
+        if (
+            message &&
+            messageChanged
+        ) {
+
+            log(message);
+        }
+
+
+    } catch (error) {
+
+        // Python may temporarily be unavailable.
+    }
+}
+
+
+// IMPORTANT:
+// Poll frequently so the left message updates quickly.
+
+setInterval(
+    pollBackend,
+    200
+);
+
+pollBackend();
+
+
+// ============================================================
+// SYSTEM TELEMETRY
+// ============================================================
+
+function updateTelemetry() {
+
+    const cpu =
+        Math.round(
+            15 +
+            Math.random() * 45
+        );
+
+
+    const ram =
+        Math.round(
+            35 +
+            Math.random() * 30
+        );
+
+
+    const disk =
+        Math.round(
+            15 +
+            Math.random() * 25
+        );
+
+
+    $("cpu").textContent =
+        cpu + "%";
+
+    $("ram").textContent =
+        ram + "%";
+
+    $("disk").textContent =
+        disk + "%";
+
+
+    $("cpuBar").style.width =
+        cpu + "%";
+
+    $("ramBar").style.width =
+        ram + "%";
+
+    $("diskBar").style.width =
+        disk + "%";
+
+
+    const down =
+        Math.round(
+            Math.random() * 900
+        );
+
+
+    const up =
+        Math.round(
+            Math.random() * 180
+        );
+
+
+    $("down").textContent =
+        down;
+
+    $("up").textContent =
+        up;
+
+
+    state.net.push(
+        Math.max(
+            3,
+            Math.min(
+                55,
+                down / 18
+            )
+        )
+    );
+
+
+    state.net.shift();
+
+    drawNetwork();
+}
+
+
+updateTelemetry();
+
+
+setInterval(
+    updateTelemetry,
+    1400
+);
+
+
+// ============================================================
+// NETWORK GRAPH
+// ============================================================
+
+function drawNetwork() {
+
+    const canvas =
+        $("networkGraph");
+
+
+    if (!canvas) {
+        return;
+    }
+
+
+    const ctx =
+        canvas.getContext("2d");
+
+
+    const rect =
+        canvas.getBoundingClientRect();
+
+
+    if (
+        rect.width <= 0 ||
+        rect.height <= 0
+    ) {
+
+        return;
+    }
+
+
+    canvas.width =
+        rect.width *
+        devicePixelRatio;
+
+
+    canvas.height =
+        rect.height *
+        devicePixelRatio;
+
+
+    ctx.scale(
+        devicePixelRatio,
+        devicePixelRatio
+    );
+
+
+    const w =
+        rect.width;
+
+
+    const h =
+        rect.height;
+
+
+    ctx.clearRect(
+        0,
+        0,
+        w,
+        h
+    );
+
+
+    // GRID
+
+    ctx.strokeStyle =
+        "rgba(255,20,20,.10)";
+
+
+    for (
+        let y = 10;
+        y < h;
+        y += 20
+    ) {
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            0,
+            y
+        );
+
+        ctx.lineTo(
+            w,
+            y
+        );
+
+        ctx.stroke();
+    }
+
+
+    // GRAPH
+
+    ctx.strokeStyle =
+        "#ff1717";
+
+    ctx.lineWidth =
+        1.3;
+
+    ctx.beginPath();
+
+
+    state.net.forEach(
+        (value, index) => {
+
+            const x =
+                index *
+                (
+                    w /
+                    (
+                        state.net.length -
+                        1
+                    )
+                );
+
+
+            const y =
+                h -
+                8 -
+                value;
+
+
+            if (
+                index === 0
+            ) {
+
+                ctx.moveTo(
+                    x,
+                    y
+                );
+
+            } else {
+
+                ctx.lineTo(
+                    x,
+                    y
+                );
+            }
+        }
+    );
+
+
+    ctx.stroke();
+}
+
+
+// ============================================================
+// AUDIO WAVEFORM
+// ============================================================
+
+function animateWave() {
+
+    const canvas =
+        $("wave");
+
+
+    if (!canvas) {
+
+        requestAnimationFrame(
+            animateWave
+        );
+
+        return;
+    }
+
+
+    const ctx =
+        canvas.getContext("2d");
+
+
+    const rect =
+        canvas.getBoundingClientRect();
+
+
+    if (
+        rect.width <= 0 ||
+        rect.height <= 0
+    ) {
+
+        requestAnimationFrame(
+            animateWave
+        );
+
+        return;
+    }
+
+
+    canvas.width =
+        rect.width *
+        devicePixelRatio;
+
+
+    canvas.height =
+        rect.height *
+        devicePixelRatio;
+
+
+    ctx.scale(
+        devicePixelRatio,
+        devicePixelRatio
+    );
+
+
+    const w =
+        rect.width;
+
+
+    const h =
+        rect.height;
+
+
+    const t =
+        performance.now() /
+        300;
+
+
+    ctx.clearRect(
+        0,
+        0,
+        w,
+        h
+    );
+
+
+    ctx.strokeStyle =
+        "#ff1717";
+
+
+    ctx.lineWidth =
+        1.5;
+
+
+    ctx.beginPath();
+
+
+    for (
+        let x = 0;
+        x < w;
+        x += 4
+    ) {
+
+        const envelope =
+            Math.sin(
+                Math.PI *
+                x /
+                w
+            );
+
+
+        const y =
+            h / 2 +
+            Math.sin(
+                x * 0.09 +
+                t * 2.5
+            ) *
+            7 *
+            envelope;
+
+
+        if (
+            x === 0
+        ) {
+
+            ctx.moveTo(
+                x,
+                y
+            );
+
+        } else {
+
+            ctx.lineTo(
+                x,
+                y
+            );
+        }
+    }
+
+
+    ctx.stroke();
+
+
+    requestAnimationFrame(
+        animateWave
+    );
+}
+
+
+animateWave();
+
+
+// ============================================================
+// UPTIME
+// ============================================================
+
+function uptime() {
+
+    const seconds =
+        Math.floor(
+            (
+                performance.now() -
+                state.started
+            ) /
+            1000
+        );
+
+
+    const h =
+        String(
+            Math.floor(
+                seconds / 3600
+            )
+        ).padStart(
+            2,
+            "0"
+        );
+
+
+    const m =
+        String(
+            Math.floor(
+                (
+                    seconds % 3600
+                ) /
+                60
+            )
+        ).padStart(
+            2,
+            "0"
+        );
+
+
+    const sec =
+        String(
+            seconds % 60
+        ).padStart(
+            2,
+            "0"
+        );
+
+
+    $("uptime").textContent =
+        `${h}:${m}:${sec}`;
+}
+
+
+uptime();
+
+
+setInterval(
+    uptime,
+    1000
+);
+
+
+// ============================================================
+// FLOATING PARTICLES
+// ============================================================
+
+function particles() {
+
+    const holder =
+        $("particles");
+
+
+    if (!holder) {
+        return;
+    }
+
+
+    for (
+        let i = 0;
+        i < 45;
+        i++
+    ) {
+
+        const p =
+            document.createElement(
+                "span"
+            );
+
+
+        p.className =
+            "particle";
+
+
+        p.style.left =
+            Math.random() *
+            100 +
+            "%";
+
+
+        p.style.top =
+            Math.random() *
+            100 +
+            "%";
+
+
+        p.style.animationDuration =
+            (
+                7 +
+                Math.random() * 15
+            ) +
+            "s";
+
+
+        p.style.animationDelay =
+            (
+                -Math.random() * 15
+            ) +
+            "s";
+
+
+        holder.appendChild(
+            p
+        );
+    }
+}
+
+
+particles();
+
+
+// ============================================================
+// QUICK COMMANDS
+// ============================================================
+
+document
+    .querySelectorAll(
+        ".quick button"
+    )
+    .forEach(
+        button => {
+
+            button.addEventListener(
+                "click",
+                () => {
+
+                    const command =
+                        button.dataset.command;
+
+
+                    $("command").value =
+                        command;
+
+
+                    log(
+                        "Command queued: " +
+                        command
+                    );
+                }
+            );
+        }
+    );
+
+
+// ============================================================
+// MANUAL COMMAND BOX
+// ============================================================
+
+const commandBox =
+    $("command");
+
+
+if (commandBox) {
+
+    commandBox.addEventListener(
+        "keydown",
+        event => {
+
+            if (
+                event.key !==
+                "Enter"
+            ) {
+
+                return;
+            }
+
+
+            const command =
+                commandBox
+                    .value
+                    .trim();
+
+
+            if (!command) {
+                return;
+            }
+
+
+            log(
+                "Command entered: " +
+                command
+            );
+
+
+            setState(
+                "THINKING",
+                "Processing your command..."
+            );
+        }
+    );
+}
+
+
+// ============================================================
+// INITIAL LOG
+// ============================================================
+
+log(
+    "System initialized"
+);
+
+log(
+    "Voice engine online"
+);
+
+log(
+    "Core connection established"
+);
+
+log(
+    "Wake phrase: Hey Spidey"
+);
+
+log(
+    "SPIDEY standing by"
+);
+
+
+// ============================================================
+// INITIAL STATE
+// ============================================================
+
+setState(
+    "STANDBY",
+    "Waiting for initial wake word..."
+);
+
+
+// ============================================================
+// 🔴 CHUP BUTTON — RIGHT BOTTOM
+// ============================================================
+
+(function () {
+
+    function createChupButton() {
+
+        if (
+            document.getElementById(
+                "chupButton"
+            )
+        ) {
+
+            return;
+        }
+
+
+        const button =
+            document.createElement(
+                "button"
+            );
+
+
+        button.id =
+            "chupButton";
+
+
+        button.type =
+            "button";
+
+
+        button.textContent =
+            "CHUP";
+
+
+        button.title =
+            "Stop Spidey speaking";
+
+
+        // ----------------------------------------------------
+        // BUTTON STYLE
+        // ----------------------------------------------------
+
+        button.style.cssText = `
+
+            position: fixed;
+
+            right: 30px;
+
+            bottom: 30px;
+
+            z-index: 999999;
+
+
+            width: 100px;
+
+            height: 38px;
+
+
+            border:
+                1px solid #ff2020;
+
+
+            border-radius:
+                3px;
+
+
+            background:
+                rgba(
+                    25,
+                    0,
+                    0,
+                    0.95
+                );
+
+
+            color:
+                #ff2020;
+
+
+            font-family:
+                "Courier New",
+                monospace;
+
+
+            font-size:
+                13px;
+
+
+            font-weight:
+                700;
+
+
+            letter-spacing:
+                3px;
+
+
+            cursor:
+                pointer;
+
+
+            box-shadow:
+                0 0 10px
+                rgba(
+                    255,
+                    0,
+                    0,
+                    0.28
+                );
+
+
+            transition:
+                all 0.15s ease;
+        `;
+
+
+        // ----------------------------------------------------
+        // HOVER
+        // ----------------------------------------------------
+
+        button.addEventListener(
+            "mouseenter",
+            () => {
+
+                button.style.background =
+                    "rgba(110, 0, 0, 0.95)";
+
+
+                button.style.color =
+                    "#ffffff";
+
+
+                button.style.boxShadow =
+                    "0 0 18px rgba(255, 0, 0, 0.55)";
+            }
+        );
+
+
+        button.addEventListener(
+            "mouseleave",
+            () => {
+
+                button.style.background =
+                    "rgba(25, 0, 0, 0.95)";
+
+
+                button.style.color =
+                    "#ff2020";
+
+
+                button.style.boxShadow =
+                    "0 0 10px rgba(255, 0, 0, 0.28)";
+            }
+        );
+
+
+        // ----------------------------------------------------
+        // CHUP CLICK
+        // ----------------------------------------------------
+
+        button.addEventListener(
+            "click",
+            async () => {
+
+                button.textContent =
+                    "STOP";
+
+
+                button.style.background =
+                    "#650000";
+
+
+                button.style.color =
+                    "#ffffff";
+
+
+                try {
+
+                    const response =
+                        await fetch(
+                            "/api/chup?t=" +
+                            Date.now(),
+                            {
+                                method:
+                                    "POST",
+
+                                headers: {
+                                    "Content-Type":
+                                        "application/json"
+                                },
+
+                                body:
+                                    JSON.stringify({
+                                        action:
+                                            "chup"
+                                    })
+                            }
+                        );
+
+
+                    if (
+                        response.ok
+                    ) {
+
+                        log(
+                            "CHUP — stop signal sent."
+                        );
+
+
+                        // Immediately show this
+                        // in the left panel too.
+
+                        setState(
+                            "STANDBY",
+                            "Speech stopped by CHUP."
+                        );
+
+
+                    } else {
+
+                        log(
+                            "CHUP request failed."
+                        );
+                    }
+
+
+                } catch (error) {
+
+                    console.error(
+                        "CHUP error:",
+                        error
+                    );
+
+
+                    log(
+                        "CHUP — Python bridge unavailable."
+                    );
+                }
+
+
+                setTimeout(
+                    () => {
+
+                        button.textContent =
+                            "CHUP";
+
+
+                        button.style.background =
+                            "rgba(25, 0, 0, 0.95)";
+
+
+                        button.style.color =
+                            "#ff2020";
+
+                    },
+                    500
+                );
+            }
+        );
+
+
+        document.body.appendChild(
+            button
+        );
+    }
+
+
+    // --------------------------------------------------------
+    // CREATE BUTTON
+    // --------------------------------------------------------
+
+    if (
+        document.readyState ===
+        "loading"
+    ) {
+
+        document.addEventListener(
+            "DOMContentLoaded",
+            createChupButton
+        );
+
+    } else {
+
+        createChupButton();
+    }
+
+})();
+// ============================================================
+// 🕷️ SPIDEY EXPERIENCE UPGRADE
+// ============================================================
+// Adds:
+// 1. Startup sequence
+// 2. Thinking animation
+// 3. SPIDEY CHAT panel
+//
+// Does NOT modify CHUP.
+// ============================================================
+
+
+// ============================================================
+// SPIDEY CHAT STORAGE
+// ============================================================
+
+const spideyChat = [];
+
+
+// ============================================================
+// ADD CHAT PANEL
+// ============================================================
+
+function createSpideyChat() {
+
+    if (
+        document.getElementById(
+            "spideyChatPanel"
+        )
+    ) {
+
+        return;
+    }
+
+
+    const panel =
+        document.createElement(
+            "div"
+        );
+
+
+    panel.id =
+        "spideyChatPanel";
+
+
+    panel.innerHTML = `
+
+        <div class="spidey-chat-header">
+
+            <span>
+                SPIDEY CHAT
+            </span>
+
+            <span
+                id="chatStatus"
+                class="chat-status"
+            >
+                ONLINE
+            </span>
+
+        </div>
+
+
+        <div
+            id="spideyChatMessages"
+            class="spidey-chat-messages"
+        >
+
+        </div>
+
+    `;
+
+
+    panel.style.cssText = `
+
+        position: fixed;
+
+        right: 30px;
+
+        top: 100px;
+
+        width: 310px;
+
+        height: 260px;
+
+        z-index: 9998;
+
+        background:
+            rgba(5, 5, 5, 0.94);
+
+        border:
+            1px solid
+            rgba(255, 20, 20, 0.45);
+
+        box-shadow:
+            0 0 20px
+            rgba(255, 0, 0, 0.12),
+
+            inset 0 0 20px
+            rgba(255, 0, 0, 0.03);
+
+        font-family:
+            "Courier New",
+            monospace;
+
+        overflow: hidden;
+
+        backdrop-filter:
+            blur(6px);
+    `;
+
+
+    document.body.appendChild(
+        panel
+    );
+
+
+    // --------------------------------------------------------
+    // HEADER
+    // --------------------------------------------------------
+
+    const header =
+        panel.querySelector(
+            ".spidey-chat-header"
+        );
+
+
+    header.style.cssText = `
+
+        height: 34px;
+
+        display: flex;
+
+        align-items: center;
+
+        justify-content:
+            space-between;
+
+        padding:
+            0 12px;
+
+        border-bottom:
+            1px solid
+            rgba(255, 20, 20, 0.22);
+
+        color:
+            #ff2020;
+
+        font-size:
+            11px;
+
+        font-weight:
+            700;
+
+        letter-spacing:
+            2px;
+    `;
+
+
+    // --------------------------------------------------------
+    // ONLINE STATUS
+    // --------------------------------------------------------
+
+    const status =
+        panel.querySelector(
+            "#chatStatus"
+        );
+
+
+    status.style.cssText = `
+
+        color:
+            #ff4040;
+
+        font-size:
+            9px;
+
+        letter-spacing:
+            1px;
+    `;
+
+
+    // --------------------------------------------------------
+    // MESSAGE AREA
+    // --------------------------------------------------------
+
+    const messages =
+        panel.querySelector(
+            "#spideyChatMessages"
+        );
+
+
+    messages.style.cssText = `
+
+        height:
+            calc(100% - 34px);
+
+        overflow-y:
+            auto;
+
+        padding:
+            10px;
+
+        box-sizing:
+            border-box;
+
+        scrollbar-width:
+            thin;
+
+        scrollbar-color:
+            #650000
+            transparent;
+    `;
+
+
+    addChatMessage(
+        "SYSTEM",
+        "SPIDEY communication channel initialized."
+    );
+}
+
+
+// ============================================================
+// ADD MESSAGE TO CHAT
+// ============================================================
+
+function addChatMessage(
+    sender,
+    message
+) {
+
+    const box =
+        document.getElementById(
+            "spideyChatMessages"
+        );
+
+
+    if (
+        !box ||
+        !message
+    ) {
+
+        return;
+    }
+
+
+    const item =
+        document.createElement(
+            "div"
+        );
+
+
+    item.style.cssText = `
+
+        margin-bottom:
+            10px;
+
+        padding:
+            7px 8px;
+
+        border-left:
+            2px solid
+            ${
+                sender === "YOU"
+                    ? "#777"
+                    : "#ff2020"
+            };
+
+        background:
+            ${
+                sender === "YOU"
+                    ? "rgba(255,255,255,.025)"
+                    : "rgba(255,0,0,.035)"
+            };
+
+        animation:
+            spideyMessageIn
+            .2s ease;
+    `;
+
+
+    const title =
+        document.createElement(
+            "div"
+        );
+
+
+    title.textContent =
+        sender;
+
+
+    title.style.cssText = `
+
+        color:
+            ${
+                sender === "YOU"
+                    ? "#aaaaaa"
+                    : "#ff2020"
+            };
+
+        font-size:
+            9px;
+
+        font-weight:
+            700;
+
+        letter-spacing:
+            2px;
+
+        margin-bottom:
+            4px;
+    `;
+
+
+    const text =
+        document.createElement(
+            "div"
+        );
+
+
+    text.textContent =
+        message;
+
+
+    text.style.cssText = `
+
+        color:
+            #dddddd;
+
+        font-size:
+            11px;
+
+        line-height:
+            1.45;
+
+        word-break:
+            break-word;
+    `;
+
+
+    item.appendChild(
+        title
+    );
+
+
+    item.appendChild(
+        text
+    );
+
+
+    box.appendChild(
+        item
+    );
+
+
+    // Keep chat compact.
+
+    while (
+        box.children.length >
+        30
+    ) {
+
+        box.removeChild(
+            box.firstChild
+        );
+    }
+
+
+    box.scrollTop =
+        box.scrollHeight;
+}
+
+
+// ============================================================
+// THINKING INDICATOR
+// ============================================================
+
+let thinkingTimer =
+    null;
+
+
+let thinkingDots =
+    0;
+
+
+function showThinking() {
+
+    const status =
+        document.getElementById(
+            "chatStatus"
+        );
+
+
+    if (!status) {
+        return;
+    }
+
+
+    clearInterval(
+        thinkingTimer
+    );
+
+
+    thinkingDots =
+        0;
+
+
+    status.textContent =
+        "THINKING";
+
+
+    thinkingTimer =
+        setInterval(
+            () => {
+
+                thinkingDots =
+                    (
+                        thinkingDots +
+                        1
+                    ) %
+                    4;
+
+
+                status.textContent =
+                    "THINKING" +
+                    ".".repeat(
+                        thinkingDots
+                    );
+
+            },
+            350
+        );
+}
+
+
+function hideThinking() {
+
+    clearInterval(
+        thinkingTimer
+    );
+
+
+    thinkingTimer =
+        null;
+
+
+    const status =
+        document.getElementById(
+            "chatStatus"
+        );
+
+
+    if (status) {
+
+        status.textContent =
+            "ONLINE";
+    }
+}
+
+
+// ============================================================
+// HOOK INTO STATE CHANGES
+// ============================================================
+
+// Keep the original setState behavior,
+// then enhance it safely.
+
+const originalSetState =
+    window.setState;
+
+
+window.setState =
+    function (
+        name,
+        message = ""
+    ) {
+
+        // Run original HUD state handler.
+
+        if (
+            typeof originalSetState ===
+            "function"
+        ) {
+
+            originalSetState(
+                name,
+                message
+            );
+        }
+
+
+        const clean =
+            String(
+                name || ""
+            ).toUpperCase();
+
+
+        // ----------------------------------------------------
+        // THINKING
+        // ----------------------------------------------------
+
+        if (
+            clean ===
+            "THINKING"
+        ) {
+
+            showThinking();
+
+        } else {
+
+            hideThinking();
+        }
+    };
+
+
+// ============================================================
+// WATCH BACKEND MESSAGE CHANGES
+// ============================================================
+
+const originalPollBackend =
+    window.pollBackend;
+
+
+// We don't replace the existing polling.
+// Instead we watch the state variables every
+// 250ms and detect new messages.
+
+let lastChatState =
+    "";
+
+let lastChatMessage =
+    "";
+
+
+setInterval(
+    () => {
+
+        const currentState =
+            state.lastBackendState ||
+            "";
+
+
+        const currentMessage =
+            state.lastBackendMessage ||
+            "";
+
+
+        // ----------------------------------------------------
+        // NEW MESSAGE
+        // ----------------------------------------------------
+
+        if (
+            currentMessage &&
+            currentMessage !==
+            lastChatMessage
+        ) {
+
+            const text =
+                currentMessage.trim();
+
+
+            const lower =
+                text.toLowerCase();
+
+
+            // Don't duplicate generic startup
+            // status messages into chat.
+
+            const isGeneric =
+                lower.includes(
+                    "waiting for wake word"
+                ) ||
+                lower ===
+                    "listening for your command..." ||
+                lower ===
+                    "command completed.";
+
+
+            if (!isGeneric) {
+
+                let sender =
+                    "SPIDEY";
+
+
+                if (
+                    lower.startsWith(
+                        "you:"
+                    )
+                ) {
+
+                    sender =
+                        "YOU";
+
+                } else if (
+                    lower.startsWith(
+                        "spidey:"
+                    )
+                ) {
+
+                    sender =
+                        "SPIDEY";
+                }
+
+
+                addChatMessage(
+                    sender,
+                    text
+                        .replace(
+                            /^you:\s*/i,
+                            ""
+                        )
+                        .replace(
+                            /^spidey:\s*/i,
+                            ""
+                        )
+                );
+            }
+
+
+            lastChatMessage =
+                currentMessage;
+        }
+
+
+        // ----------------------------------------------------
+        // THINKING STATE
+        // ----------------------------------------------------
+
+        if (
+            currentState ===
+            "THINKING"
+        ) {
+
+            showThinking();
+
+        } else if (
+            currentState !==
+            lastChatState
+        ) {
+
+            hideThinking();
+        }
+
+
+        lastChatState =
+            currentState;
+
+
+    },
+    250
+);
+
+
+// ============================================================
+// STARTUP SEQUENCE
+// ============================================================
+
+function createStartupSequence() {
+
+    if (
+        document.getElementById(
+            "spideyStartup"
+        )
+    ) {
+
+        return;
+    }
+
+
+    const overlay =
+        document.createElement(
+            "div"
+        );
+
+
+    overlay.id =
+        "spideyStartup";
+
+
+    overlay.innerHTML = `
+
+        <div
+            id="startupTitle"
+        >
+            SPIDEY
+        </div>
+
+
+        <div
+            id="startupSubtitle"
+        >
+            PERSONAL AI SYSTEM
+        </div>
+
+
+        <div
+            id="startupLines"
+        >
+
+            <div>
+                VOICE ENGINE
+                <span>INITIALIZING...</span>
+            </div>
+
+            <div>
+                AI CORE
+                <span>INITIALIZING...</span>
+            </div>
+
+            <div>
+                WEB CONTROL
+                <span>INITIALIZING...</span>
+            </div>
+
+            <div>
+                MEMORY
+                <span>INITIALIZING...</span>
+            </div>
+
+            <div>
+                CHUP SYSTEM
+                <span>INITIALIZING...</span>
+            </div>
+
+        </div>
+
+
+        <div
+            id="startupOnline"
+        >
+            SYSTEM OFFLINE
+        </div>
+
+    `;
+
+
+    overlay.style.cssText = `
+
+        position: fixed;
+
+        inset: 0;
+
+        z-index: 1000000;
+
+        display: flex;
+
+        flex-direction:
+            column;
+
+        align-items:
+            center;
+
+        justify-content:
+            center;
+
+        background:
+            #030303;
+
+        color:
+            #ff2020;
+
+        font-family:
+            "Courier New",
+            monospace;
+
+        opacity: 1;
+
+        transition:
+            opacity .6s ease;
+    `;
+
+
+    document.body.appendChild(
+        overlay
+    );
+
+
+    const title =
+        document.getElementById(
+            "startupTitle"
+        );
+
+
+    title.style.cssText = `
+
+        font-size:
+            52px;
+
+        font-weight:
+            800;
+
+        letter-spacing:
+            14px;
+
+        text-shadow:
+            0 0 20px
+            rgba(255,0,0,.5);
+
+        margin-bottom:
+            5px;
+    `;
+
+
+    const subtitle =
+        document.getElementById(
+            "startupSubtitle"
+        );
+
+
+    subtitle.style.cssText = `
+
+        font-size:
+            10px;
+
+        letter-spacing:
+            4px;
+
+        color:
+            #777;
+
+        margin-bottom:
+            38px;
+    `;
+
+
+    const lines =
+        overlay.querySelectorAll(
+            "#startupLines div"
+        );
+
+
+    lines.forEach(
+        line => {
+
+            line.style.cssText = `
+
+                width:
+                    310px;
+
+                display:
+                    flex;
+
+                justify-content:
+                    space-between;
+
+                font-size:
+                    11px;
+
+                letter-spacing:
+                    1px;
+
+                margin:
+                    8px 0;
+
+                color:
+                    #888;
+            `;
+
+
+            const span =
+                line.querySelector(
+                    "span"
+                );
+
+
+            span.style.color =
+                "#555";
+        }
+    );
+
+
+    const online =
+        document.getElementById(
+            "startupOnline"
+        );
+
+
+    online.style.cssText = `
+
+        margin-top:
+            35px;
+
+        font-size:
+            12px;
+
+        letter-spacing:
+            5px;
+
+        color:
+            #555;
+
+        transition:
+            all .3s ease;
+    `;
+
+
+    // --------------------------------------------------------
+    // STARTUP TIMING
+    // --------------------------------------------------------
+
+    const startupSteps = [
+
+        "VOICE ENGINE",
+        "AI CORE",
+        "WEB CONTROL",
+        "MEMORY",
+        "CHUP SYSTEM"
+
+    ];
+
+
+    startupSteps.forEach(
+        (
+            name,
+            index
+        ) => {
+
+            setTimeout(
+                () => {
+
+                    const line =
+                        lines[index];
+
+
+                    const span =
+                        line.querySelector(
+                            "span"
+                        );
+
+
+                    span.textContent =
+                        "ONLINE";
+
+
+                    span.style.color =
+                        "#ff2020";
+
+
+                    span.style.textShadow =
+                        "0 0 8px rgba(255,0,0,.45)";
+
+                },
+                500 +
+                index * 450
+            );
+        }
+    );
+
+
+    setTimeout(
+        () => {
+
+            online.textContent =
+                "SYSTEM ONLINE";
+
+
+            online.style.color =
+                "#ff2020";
+
+
+            online.style.textShadow =
+                "0 0 12px rgba(255,0,0,.5)";
+        },
+        3000
+    );
+
+
+    setTimeout(
+        () => {
+
+            overlay.style.opacity =
+                "0";
+
+
+            setTimeout(
+                () => {
+
+                    overlay.remove();
+
+                },
+                650
+            );
+
+        },
+        3600
+    );
+}
+
+
+// ============================================================
+// CHAT ANIMATION CSS
+// ============================================================
+
+function addSpideyExperienceCSS() {
+
+    if (
+        document.getElementById(
+            "spideyExperienceCSS"
+        )
+    ) {
+
+        return;
+    }
+
+
+    const style =
+        document.createElement(
+            "style"
+        );
+
+
+    style.id =
+        "spideyExperienceCSS";
+
+
+    style.textContent = `
+
+        @keyframes spideyMessageIn {
+
+            from {
+                opacity: 0;
+                transform:
+                    translateY(5px);
+            }
+
+            to {
+                opacity: 1;
+                transform:
+                    translateY(0);
+            }
+
+        }
+
+
+        @keyframes spideyPulse {
+
+            0% {
+                opacity: .35;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: .35;
+            }
+
+        }
+
+    `;
+
+
+    document.head.appendChild(
+        style
+    );
+}
+
+
+// ============================================================
+// INITIALIZE EXPERIENCE
+// ============================================================
+
+function initializeSpideyExperience() {
+
+    addSpideyExperienceCSS();
+
+    createSpideyChat();
+
+    createStartupSequence();
+}
+
+
+// ============================================================
+// WAIT FOR DOM
+// ============================================================
+
+if (
+    document.readyState ===
+    "loading"
+) {
+
+    document.addEventListener(
+        "DOMContentLoaded",
+        initializeSpideyExperience
+    );
+
+} else {
+
+    initializeSpideyExperience();
+}

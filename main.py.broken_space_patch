@@ -1,0 +1,2187 @@
+from dotenv import load_dotenv
+load_dotenv()
+import ctypes
+from google import genai
+import memory
+import ai_router
+import sounddevice as sd
+import speech_recognition as sr
+import asyncio
+import edge_tts
+import subprocess
+import uuid
+import os
+import keyboard
+import time
+import re
+import tools
+import screen_vision
+import pygame
+import screen_analyzer
+import alarm_manager
+import cv2
+import ctypes
+import mediapipe as mp
+import threading
+gesture_stop_event = threading.Event()
+def open_spotify():
+    """Open the installed Spotify Desktop application on Windows."""
+    try:
+        result = subprocess.run(
+            ["cmd", "/c", "start", "", "spotify:"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        time.sleep(1.5)
+        return result.returncode == 0
+
+    except Exception as e:
+        print("Spotify desktop error:", e)
+        return False
+
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+SAMPLE_RATE = 16000
+WAKE_LISTEN_TIME = 4
+COMMAND_LISTEN_TIME = 6
+
+GEMINI_MODEL = "gemini-3.6-flash"
+
+gemini_client = genai.Client(
+    api_key=os.environ["GEMINI_API_KEY"]
+)
+VOICE = "en-GB-RyanNeural"
+VOICE_RATE = "-5%"
+VOICE_PITCH = "-8Hz"
+
+
+def ask_gemini(prompt):
+    response = gemini_client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config={
+            "temperature": 0.3,
+            "max_output_tokens": 1000
+        }
+    )
+    return response.text.strip()
+
+
+# ============================================================
+# MOOD MODE
+# ============================================================
+# Controls SPIDEY personality for normal AI conversations.
+# Modes: normal, savage, roast
+
+MOOD_MODE = "normal"
+
+recognizer = sr.Recognizer()
+recognizer.pause_threshold = 0.9
+recognizer.non_speaking_duration = 0.4
+
+# Prevent SPIDEY from hearing its own TTS.
+tts_active = threading.Event()
+
+# Give speaker audio time to fully clear before opening the microphone.
+TTS_MIC_COOLDOWN = 0.8
+
+# Prevent SPIDEY from hearing its own TTS.
+
+# Prevent SPIDEY from hearing its own TTS output.
+recognizer.phrase_threshold = 0.2
+
+# CHUP button uses a file signal because the HUD server
+# runs as a separate Python process.
+CHUP_FLAG_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "chup.flag"
+)
+
+def open_spotify():
+    """Open the installed Spotify Desktop application on Windows."""
+    try:
+        result = subprocess.run(
+            ["cmd", "/c", "start", "", "spotify:"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        import time
+        time.sleep(1.5)
+        return result.returncode == 0
+    except Exception as e:
+        print("Spotify desktop error:", e)
+        return False
+
+def launch_spotify_desktop():
+    """Launch the installed Spotify Desktop app on Windows."""
+    try:
+        result = subprocess.run(
+            [
+                "cmd",
+                "/c",
+                "start",
+                "",
+                "spotify:"
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False
+        )
+
+        time.sleep(1.5)
+
+        return result.returncode == 0
+
+    except Exception as e:
+        print("Spotify desktop error:", e)
+        return False
+
+
+def chup_requested():
+    return os.path.exists(CHUP_FLAG_FILE)
+
+def clear_chup():
+    try:
+        if os.path.exists(CHUP_FLAG_FILE):
+            os.remove(CHUP_FLAG_FILE)
+    except Exception:
+        pass
+
+# Remove leftover temporary TTS files from previous runs.
+def cleanup_old_audio():
+
+    try:
+
+        base_dir = os.path.dirname(
+            os.path.abspath(__file__)
+        )
+
+        for filename in os.listdir(base_dir):
+
+            if (
+                filename.startswith("jarvis_")
+                and filename.endswith(".mp3")
+            ):
+
+                try:
+
+                    os.remove(
+                        os.path.join(
+                            base_dir,
+                            filename
+                        )
+                    )
+
+                except Exception:
+                    pass
+
+    except Exception:
+        pass
+
+
+# ============================================================
+# EDGE SHUTDOWN
+# ============================================================
+
+def close_edge():
+
+    try:
+
+        # Close Microsoft Edge when SPIDEY exits.
+        subprocess.run(
+            [
+                "taskkill",
+                "/F",
+                "/IM",
+                "msedge.exe"
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False
+        )
+
+        print("EDGE: closed.")
+
+    except Exception as e:
+
+        print(
+            "EDGE close error:",
+            e
+        )
+# ============================================================
+# HUD CONNECTION
+# ============================================================
+
+HUD_URL = "http://127.0.0.1:8765/api/state"
+
+
+LAST_USER_COMMAND = ""
+
+def update_hud(state, message=None):
+
+    global LAST_USER_COMMAND
+
+    if message and message.startswith("You:"):
+        LAST_USER_COMMAND = message[4:].strip()
+
+
+    try:
+
+        import urllib.request
+        import json
+
+        # Keep the state machine compatible with the existing
+        # HUD server while also sending a readable activity line.
+        hud_state = state
+
+        if message:
+            hud_state = f"{state}|{message}"
+
+        user_command = ""
+
+        if message and message.startswith("You:"):
+            user_command = message[4:].strip()
+
+        data = json.dumps({
+            "state": hud_state,
+            "user_command": user_command if user_command else LAST_USER_COMMAND,
+            "spidey_message": message if message else ""
+        }).encode("utf-8")
+
+        request = urllib.request.Request(
+            HUD_URL,
+            data=data,
+            headers={
+                "Content-Type": "application/json"
+            },
+            method="POST"
+        )
+
+        urllib.request.urlopen(
+            request,
+            timeout=0.5
+        )
+
+    except Exception:
+        # HUD may not be running.
+        # Spidey continues working normally.
+        pass
+
+# ============================================================
+# AI INTENT DETECTION
+# ============================================================
+
+def detect_intent(command):
+
+    prompt = f"""
+You are SPIDEY's command classifier.
+
+Classify the user's command.
+
+Return ONLY one line in exactly this format:
+
+OPEN_WEBSITE|name
+OPEN_APP|name
+OPEN_FOLDER|name
+NORMAL_CHAT|none
+
+Examples:
+
+open Instagram
+OPEN_WEBSITE|instagram
+
+can you open Instagram for me
+OPEN_WEBSITE|instagram
+
+take me to GitHub
+OPEN_WEBSITE|github
+
+launch Reddit
+OPEN_WEBSITE|reddit
+
+open Discord
+OPEN_APP|discord
+
+can you launch Discord for me
+OPEN_APP|discord
+
+start Discord
+OPEN_APP|discord
+
+open calculator
+OPEN_APP|calculator
+
+open notepad
+OPEN_APP|notepad
+
+start VS Code
+OPEN_APP|vscode
+
+open my downloads
+OPEN_FOLDER|downloads
+
+what is the capital of India
+NORMAL_CHAT|none
+
+tell me a joke
+NORMAL_CHAT|none
+
+IMPORTANT:
+
+Discord, Calculator, Notepad and VS Code are applications.
+
+Instagram, YouTube, GitHub, Reddit, Netflix,
+Google and Facebook are websites. Spotify is an application.
+
+Return ONLY the classification.
+Do not explain.
+
+User command:
+{command}
+"""
+
+    try:
+
+        print("GEMINI INTENT: CALLING")
+
+        response = gemini_client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config={
+                "temperature": 0.1,
+                "max_output_tokens": 30
+            }
+        )
+
+        raw_result = response.text.strip()
+
+        result = next(
+            (
+                line.strip()
+                for line in raw_result.splitlines()
+                if line.strip()
+            ),
+            "NORMAL_CHAT|none"
+        )
+
+        result = result.replace("`", "").strip()
+
+        match = re.match(
+            r"^(OPEN_WEBSITE|OPEN_APP|OPEN_FOLDER|NORMAL_CHAT)\|(.+)$",
+            result,
+            re.IGNORECASE
+        )
+
+        if match:
+
+            intent_type = match.group(1).upper()
+            name = match.group(2).strip().lower()
+
+            result = f"{intent_type}|{name}"
+
+        else:
+
+            result = "NORMAL_CHAT|none"
+
+        print("INTENT:", result)
+
+        return result
+
+    except Exception as e:
+
+        print("Gemini intent error:", e)
+
+        return "NORMAL_CHAT|none"
+
+
+# ============================================================
+# VOICE OUTPUT
+# ============================================================
+
+async def create_voice(text, filename):
+
+    communicate = edge_tts.Communicate(
+        text,
+        VOICE,
+        rate=VOICE_RATE,
+        pitch=VOICE_PITCH
+    )
+
+    await communicate.save(filename)
+
+
+def speak(text):
+
+    print("SPIDEY:", text)
+
+    filename = f"jarvis_{uuid.uuid4().hex}.mp3"
+
+    clear_chup()
+
+    try:
+
+        asyncio.run(
+            create_voice(
+                text,
+                filename
+            )
+        )
+
+        if chup_requested():
+
+            clear_chup()
+            update_hud(
+                "LISTENING",
+                "Speech stopped ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â listening..."
+            )
+            return
+
+        pygame.mixer.init()
+
+        pygame.mixer.music.load(
+            filename
+        )
+
+        pygame.mixer.music.play()
+
+        update_hud(
+            "SPEAKING",
+            "Spidey is speaking..."
+        )
+
+        while pygame.mixer.music.get_busy():
+
+            if chup_requested():
+
+                print(
+                    "SPIDEY: CHUP button pressed."
+                )
+
+                pygame.mixer.music.stop()
+                clear_chup()
+
+                update_hud(
+                    "LISTENING",
+                    "Speech stopped ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â listening..."
+                )
+
+                break
+
+            time.sleep(0.03)
+
+    except Exception as e:
+
+        print(
+            "Voice error:",
+            e
+        )
+
+    finally:
+
+        try:
+            pygame.mixer.music.stop()
+        except Exception:
+            pass
+
+        try:
+            pygame.mixer.quit()
+        except Exception:
+            pass
+
+        clear_chup()
+
+        try:
+            if os.path.exists(filename):
+                os.remove(filename)
+        except Exception:
+            pass
+
+
+# ============================================================
+# VOICE INPUT
+# ============================================================
+
+def space_held():
+    """Return True while the SPACE key is physically held down."""
+    try:
+        return keyboard.is_pressed("space")
+    except Exception:
+        return False
+
+
+def wait_for_space():
+    """
+    Push-to-talk Space key.
+
+    Space DOWN  -> start listening
+    Space HELD  -> keep listening
+    Space UP    -> stop listening
+    """
+
+    try:
+        import keyboard
+
+        print("SPIDEY: Press and HOLD SPACE to listen...")
+
+        # Make sure we start from a released state.
+        while keyboard.is_pressed("space"):
+            time.sleep(0.03)
+
+        # Wait for Space to be pressed.
+        keyboard.wait("space")
+
+        print("SPIDEY: SPACE pressed - listening...")
+
+        return True
+
+    except Exception as e:
+        print("Space key error:", e)
+        return False
+
+
+def run_spidey():
+    global MOOD_MODE
+
+    cleanup_old_audio()
+    # Start hand gesture detection in background
+    gesture_thread = threading.Thread(
+        target=middle_finger_gesture,
+        daemon=True
+    )
+    gesture_thread.start()
+
+    clear_chup()
+
+    print()
+    print("================================")
+    print("       SPIDEY IS ONLINE")
+    print("================================")
+    print()
+    print("Say 'Spidey' once to activate.")
+    print("Then speak commands directly.")
+    print("Say 'exit' to shut down.")
+    print()
+
+    # ========================================================
+    # WAKE WORD LOOP
+    # ========================================================
+    # Wake word is required ONLY once per activation.
+    # After "Spidey" is detected, we stay in command mode
+    # until the user says "exit".
+    # ========================================================
+
+    while True:
+
+        update_hud(
+            "STANDBY",
+            "Listening for wake word..."
+        )
+
+        if not wait_for_space():
+            continue
+
+        print("SPIDEY: SPACE held - listening for wake word...")
+
+        user_input = listen_for_wake_word(WAKE_LISTEN_TIME)
+
+        if not user_input:
+            continue
+
+        wake_command = (
+            user_input
+            .lower()
+            .strip()
+        )
+
+        # Exit is also accepted while waiting for wake word.
+        if wake_command in [
+            "exit",
+            "quit",
+            "shutdown",
+            "goodbye",
+            "shut down",
+            "id override",
+            "video override",
+            "ride override"
+        ]:
+
+            speak("Goodbye  MASTER")
+
+            try:
+                memory.close_memory()
+            except Exception as e:
+                print(
+                    "Memory close error:",
+                    e
+                )
+
+            close_edge()
+
+            return
+
+        # ----------------------------------------------------
+        # FLEXIBLE WAKE WORD
+        # ----------------------------------------------------
+        # Speech recognition may turn "Hi Spidey" into
+        # "high speedy", "high speed", etc.
+        wake_variants = [
+            "hi spidey",
+            "hey spidey",
+            "hi spidy",
+            "hey spidy",
+            "high speedy",
+            "high speed",
+            "hi speedy",
+            "hey speedy",
+            "hi spider",
+        ]
+
+        wake_detected = any(
+            variant in wake_command
+            for variant in wake_variants
+        )
+
+        if not wake_detected:
+            continue
+
+        # ====================================================
+        # ACTIVATED ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â NO MORE WAKE WORD NEEDED
+        # ====================================================
+
+        update_hud(
+            "LISTENING",
+            "Wake word detected ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â listening for command..."
+        )
+
+        print("DEBUG: ABOUT TO SPEAK WAKE RESPONSE")
+        speak("Yes MASTER SPIDEY AT YOUR SERVICE")
+        print("DEBUG: WAKE RESPONSE FINISHED")
+
+        # ====================================SS================
+        # CONTINUOUS COMMAND MODE
+        # ====================================================
+
+        while True:
+
+            update_hud(
+                "LISTENING",
+                "Listening for your command..."
+            )
+
+            wait_for_space()
+
+            print("SPIDEY: SPACE held - listening for command...")
+
+            user_input = listen(
+
+
+
+                COMMAND_LISTEN_TIME
+
+
+
+            )
+
+            if user_input:
+                update_hud(
+                    "LISTENING",
+                    f"You: {user_input}"
+                )
+
+            if not user_input:
+                # No speech is NOT an error.
+                # Stay in command mode silently.
+                update_hud(
+                    "LISTENING",
+                    "Listening for your command..."
+                )
+                continue
+
+            command = (
+                user_input
+                .lower()
+                .strip()
+            )
+
+            print(
+                "DEBUG COMMAND:",
+                repr(command)
+            )
+
+            # =================================================
+            # ALARM COMMANDS
+            # =================================================
+
+            alarm_stop_phrases = [
+                "spidey stop",
+                "spidy stop",
+                "spider stop",
+                "speedy stop",
+                "stop spidey",
+                "stop spidy",
+                "stop spider",
+                "stop speedy",
+                "stop the alarm",
+                "stop alarm",
+                "cancel alarm",
+                "cancel the alarm",
+                "enough spidey",
+                "enough spidy",
+                "be quiet spidey",
+                "be quiet spidy",
+                "silence spidey",
+                "silence spidy",
+                "shut up spidey",
+                "shut up spidy",
+                "stop"
+            ]
+
+            normalized_command = re.sub(
+                r"[^a-z0-9\s]",
+                "",
+                command
+            )
+            normalized_command = re.sub(
+                r"\s+",
+                " ",
+                normalized_command
+            ).strip()
+
+            if (
+                normalized_command in alarm_stop_phrases
+                or "spidey stop" in normalized_command
+                or "spidy stop" in normalized_command
+                or "spider stop" in normalized_command
+                or "speedy stop" in normalized_command
+            ):
+                print(
+                    "DEBUG: ALARM STOP COMMAND DETECTED:",
+                    repr(normalized_command)
+                )
+                alarm_manager.stop_alarm_speech()
+                update_hud("LISTENING", "Alarm stopped.")
+                continue
+
+            alarm_match = re.match(
+                r"^(?:set\s+(?:an\s+)?alarm(?:\s+for)?|alarm(?:\s+for)?)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?)?$",
+                command,
+                re.IGNORECASE
+            )
+
+            if alarm_match:
+                alarm_value = float(alarm_match.group(1))
+                alarm_unit = (
+                    alarm_match.group(2) or "minutes"
+                ).lower()
+
+                if alarm_unit.startswith("sec"):
+                    alarm_minutes = alarm_value / 60.0
+                else:
+                    alarm_minutes = alarm_value
+
+                print(
+                    "DEBUG: ALARM COMMAND DETECTED:",
+                    repr(command)
+                )
+
+                success, result = alarm_manager.set_alarm(
+                    alarm_minutes
+                )
+
+                if success:
+                    alarm_time = result.strftime(
+                        "%I:%M:%S %p"
+                    ).lstrip("0")
+
+                    update_hud(
+                        "LISTENING",
+                        f"Alarm set for {alarm_value:g} {alarm_unit}."
+                    )
+
+                    speak(
+                        f"Alarm set for {alarm_value:g} {alarm_unit}. "
+                        f"It will ring at {alarm_time}."
+                    )
+                else:
+                    speak(str(result))
+
+                continue
+
+            if normalized_command in [
+                "cancel all alarms",
+                "cancel every alarm",
+                "cancel my alarms"
+            ]:
+                alarm_manager.cancel_all_alarms()
+                update_hud(
+                    "LISTENING",
+                    "All alarms cancelled."
+                )
+                speak("All alarms cancelled.")
+                continue
+
+            if normalized_command in [
+                "list alarms",
+                "show alarms",
+                "show my alarms",
+                "what alarms do i have",
+                "what are my alarms"
+            ]:
+                alarms = alarm_manager.get_alarms()
+
+                if alarms:
+                    update_hud(
+                        "LISTENING",
+                        f"You have {len(alarms)} active alarm(s)."
+                    )
+                    speak(
+                        f"You have {len(alarms)} active alarm(s)."
+                    )
+                else:
+                    update_hud(
+                        "LISTENING",
+                        "You have no active alarms."
+                    )
+                    speak("You have no active alarms.")
+
+                continue
+
+
+            # =================================================
+            # SPIDEY OVERRIDE ? IMMEDIATE SHUTDOWN
+            # =================================================
+            # This MUST run before HUD/intent/Ollama processing.
+            # Otherwise Ollama may interpret "spidey override"
+            # as an OPEN_APP command.
+            # =================================================
+
+            # =================================================
+            # SPIDEY SLEEP - TEMPORARY PAUSE
+            # =================================================
+
+            sleep_phrases = {
+                "spidey sleep",
+                "spidy sleep",
+                "spider sleep",
+                "speedy sleep",
+                "spidey asleep",
+                "spidy asleep",
+                "spider asleep",
+                "speedy asleep",
+                "spidey go to sleep",
+                "spidy go to sleep",
+                "spider go to sleep",
+                "speedy go to sleep",
+                "spidey take a nap",
+                "spidy take a nap",
+                "spider take a nap",
+                "speedy take a nap",
+                "spidey nap",
+                "spidy nap",
+                "spider nap",
+                "speedy nap"
+            }
+
+            sleep_detected = any(
+                phrase in command
+                for phrase in sleep_phrases
+            )
+
+            if sleep_detected:
+
+                print("SPIDEY: Going to sleep...")
+
+                update_hud(
+                    "STANDBY",
+                    "Spidey is sleeping..."
+                )
+
+                speak(
+                    "Okay. I am going to sleep. Say Hey Spidey when you need me."
+                )
+
+                break
+
+            # =================================================
+            # =================================================
+            # MOOD MODE
+            # =================================================
+
+            mood_match = re.match(
+                r"^(?:spidey[\s,]*)?(savage|roast|normal)\s+mode$",
+                command,
+                re.IGNORECASE
+            )
+
+            if mood_match:
+
+                MOOD_MODE = mood_match.group(1).lower()
+
+                print(
+                    "DEBUG: MOOD MODE CHANGED:",
+                    MOOD_MODE
+                )
+
+                if MOOD_MODE == "savage":
+
+                    update_hud(
+                        "LISTENING",
+                        "Savage Mode activated."
+                    )
+
+                    speak(
+                        "Savage Mode activated, MASTER."
+                    )
+
+                elif MOOD_MODE == "roast":
+
+                    update_hud(
+                        "LISTENING",
+                        "Roast Mode activated."
+                    )
+
+                    speak(
+                        "Roast Mode activated, MASTER."
+                    )
+
+                else:
+
+                    update_hud(
+                        "LISTENING",
+                        "Normal Mode activated."
+                    )
+
+                    speak(
+                        "Normal Mode activated, MASTER."
+                    )
+
+                continue
+
+            # EXISTING SPIDEY OVERRIDE
+            # =================================================
+            override_phrases = {
+                "spidey override",
+                "spidy override",
+                "spider override",
+                "spidey over ride",
+                "spidy over ride",
+                "spider over ride", 
+                "override spidey",
+                "ID OVERRIDE",
+                "OVERRIDE",
+            }
+
+            if command in override_phrases:
+
+                print(
+                    "SPIDEY OVERRIDE ACTIVATED."
+                )
+
+                update_hud(
+                    "THINKING",
+                    "Spidey override activated..."
+                )
+
+                speak(
+                    "Goodbye, Master."
+                )
+
+                try:
+
+                    memory.close_memory()
+
+                except Exception as e:
+
+                    print(
+                        "Memory close error:",
+                        e
+                    )
+
+                close_edge()
+                return
+
+
+            # =================================================
+            # BHAVYA KORIYA EASTER EGG
+            # =================================================
+
+            bhavya_variants = [
+                "bhavya koriya",
+                "bhavya korea",
+                "bhavya coria",
+                "bhavya koria",
+                "bhavya khoriya",
+            ]
+
+            if any(
+                variant in command
+                for variant in bhavya_variants
+            ):
+
+                speak(
+                    "Bhavya Koriya ki sasu ki chut"
+                )
+
+                continue
+
+            
+
+            # =================================================
+            # FAST EXIT
+            # =================================================
+
+            if command in [
+                "exit",
+                "quit",
+                "shutdown",
+                "goodbye",
+                "shut down"
+            ]:
+
+                speak("Goodbye.MASTER")
+
+                try:
+                    memory.close_memory()
+                except Exception as e:
+                    print("Memory close error:", e)
+
+                close_edge()
+                return
+
+
+
+                       # =================================================
+            # SMART SCREEN VISION
+            # =================================================
+            # Uses the appropriate vision tool depending on
+            # what the user is asking.
+            #
+            # OCR = fast text reading
+            # Moondream = visual understanding
+            # OCR + Moondream = error/problem analysis
+            # =================================================
+
+            screen_text_triggers = [
+                "read my screen",
+                "read the screen",
+                "read what's on my screen",
+                "read what is on my screen",
+                "what is written on my screen",
+                "what's written on my screen",
+                "what text is on my screen",
+                "what text can you read",
+                "what does my screen say",
+                "what does the screen say",
+            ]
+
+            screen_error_triggers = [
+                "what is the error",
+                "what's the error",
+                "what is the error on my screen",
+                "what's the error on my screen",
+                "find the error",
+                "find the error on my screen",
+                "is there an error",
+                "is there an error on my screen",
+                "what went wrong on my screen",
+                "what is wrong on my screen",
+            ]
+
+            screen_app_triggers = [
+                "what app am i using",
+                "what application am i using",
+                "what app is open",
+                "what application is open",
+                "which app is open",
+                "which application is open",
+            ]
+
+            screen_activity_triggers = [
+                "what am i doing",
+                "what am i doing on my computer",
+                "what am i working on",
+                "what am i working on right now",
+            ]
+
+            screen_general_triggers = [
+                "look at my screen",
+                "look at the screen",
+                "check my screen",
+                "check the screen",
+                "analyze my screen",
+                "analyze the screen",
+                "what is on my screen",
+                "what's on my screen",
+                "what do you see on my screen",
+                "what do you see on the screen",
+                "inspect my screen",
+                "inspect the screen",
+                "see my screen",
+                "see the screen",
+            ]
+
+            vision_mode = None
+
+            if any(
+                trigger in command
+                for trigger in screen_error_triggers
+            ):
+                vision_mode = "error"
+
+            elif any(
+                trigger in command
+                for trigger in screen_text_triggers
+            ):
+                vision_mode = "text"
+
+            elif any(
+                trigger in command
+                for trigger in screen_app_triggers
+            ):
+                vision_mode = "app"
+
+            elif any(
+                trigger in command
+                for trigger in screen_activity_triggers
+            ):
+                vision_mode = "activity"
+
+            elif any(
+                trigger in command
+                for trigger in screen_general_triggers
+            ):
+                vision_mode = "general"
+
+            if vision_mode:
+
+                update_hud(
+                    "THINKING",
+                    "Analyzing your screen..."
+                )
+
+                try:
+
+                    print(
+                        "VISION MODE:",
+                        vision_mode
+                    )
+
+                    result = screen_analyzer.analyze_screen(
+                        vision_mode
+                    )
+
+                    result = (
+                        result or ""
+                    ).strip()
+
+                    if result:
+
+                        # Keep spoken responses concise.
+                        sentences = re.split(
+                            r'(?<=[.!?])\s+',
+                            result
+                        )
+
+                        short_result = " ".join(
+                            sentences[:2]
+                        ).strip()
+
+                        if len(short_result) > 450:
+                            short_result = (
+                                short_result[:450]
+                                .rsplit(" ", 1)[0]
+                                + "."
+                            )
+
+                        update_hud(
+                            "SPEAKING",
+                            f"Spidey: {short_result}"
+                        )
+
+                        speak(
+                            short_result
+                        )
+
+                    else:
+
+                        speak(
+                            "I couldn't find anything useful on the screen."
+                        )
+
+                except Exception as e:
+
+                    print(
+                        "Smart Screen Vision error:",
+                        e
+                    )
+
+                    speak(
+                        "Sorry, I couldn't analyze the screen."
+                    )
+
+                update_hud(
+                    "LISTENING",
+                    "Listening for your command..."
+                )
+
+                continue
+            # =================================================
+            # COMPUTER CONTROLS
+            # =================================================
+
+            if command in [
+                "take a screenshot",
+                "take screenshot",
+                "screenshot",
+                "capture screen",
+                "capture my screen"
+            ]:
+                update_hud("THINKING", "Taking screenshot...")
+                success = tools.take_screenshot()
+                speak("Screenshot taken." if success else "I couldn't take the screenshot.")
+                continue
+
+            if command in [
+                "volume up",
+                "increase volume",
+                "turn volume up",
+                "make it louder"
+            ]:
+                tools.volume_up()
+                speak("Volume increased.")
+                continue
+
+            if command in [
+                "volume down",
+                "decrease volume",
+                "turn volume down",
+                "make it quieter"
+            ]:
+                tools.volume_down()
+                speak("Volume decreased.")
+                continue
+
+            if command in ["mute", "mute volume", "mute the volume"]:
+                tools.volume_mute()
+                speak("Muted.")
+                continue
+
+            if command in ["unmute", "unmute volume", "unmute the volume"]:
+                tools.volume_mute()
+                speak("Unmuted.")
+                continue
+
+            # =================================================
+            # WINDOW CONTROLS
+            # =================================================
+
+            if command in [
+                "minimise",
+                "minimize",
+                "minimise this",
+                "minimize this",
+                "minimise window",
+                "minimize window",
+                "minimise this window",
+                "minimize this window"
+            ]:
+
+                success = tools.minimize_window()
+
+                if success:
+                    speak("Minimized.")
+                else:
+                    speak("I couldn't minimize the window.")
+
+                continue
+
+
+            # =================================================
+            # SPOTIFY COMMAND
+            # =================================================
+
+            spotify_match = re.match(
+                r"^(?:play|start)\s+(.+?)\s+on\s+spotify$",
+                command,
+                re.IGNORECASE
+            )
+
+            if spotify_match:
+
+                song = spotify_match.group(1).strip()
+
+                update_hud(
+                    "THINKING",
+                    f"Opening Spotify search for {song}..."
+                )
+
+                success = play_spotify_desktop(song)
+
+                if success:
+                    speak(f"Searching Spotify for {song}.")
+                else:
+                    speak("I couldn't open Spotify.")
+
+                continue
+
+
+            # =================================================
+            # SPOTIFY / MEDIA CONTROLS
+            # =================================================
+
+            if command in [
+                    "play",
+                    "play music",
+                    "resume",
+                    "resume music",
+                    "continue music",
+                    "continue playing",
+                    "play spotify",
+                    "play music on spotify"
+                ]:
+                    try:
+                        import pyautogui
+                        pyautogui.press("playpause")
+                        speak("Playing music.")
+                    except Exception as e:
+                        print("Play music error:", e)
+                        speak("I couldn't control Spotify.")
+
+                    continue
+
+
+            if command in [
+                "pause",
+                "pause music",
+                "pause spotify",
+                "pause the music"
+            ]:
+                try:
+                    import pyautogui
+                    pyautogui.press("playpause")
+                    speak("Music paused.")
+                except Exception as e:
+                    print("Pause music error:", e)
+                    speak("I couldn't pause the music.")
+
+                continue
+
+
+            if command in [
+                "stop",
+                "stop music",
+                "stop spotify",
+                "stop the music"
+            ]:
+                try:
+                    import pyautogui
+                    pyautogui.press("stop")
+                    speak("Music stopped.")
+                except Exception as e:
+                    print("Stop music error:", e)
+                    speak("I couldn't stop the music.")
+
+                continue
+
+
+            if command in [
+                "next",
+                "next",
+                "next song",
+                "next music",
+                "skip",
+                "skip song",
+                "skip music",
+                "next track",
+                "skip track"
+
+            ]:
+
+                try:
+                    import pyautogui
+                    pyautogui.press("nexttrack")
+                    speak("Next song.")
+                except Exception as e:
+                    print("Next track error:", e)
+                    speak("I couldn't skip the song.")
+
+                continue
+
+
+            if command in [
+                "previous",
+                "previous song",
+                "previous music",
+                "previous track",
+                "last song",
+                "go back",
+                "go to previous song"
+            ]:
+
+                try:
+                    import pyautogui
+                    pyautogui.press("prevtrack")
+                    speak("Previous song.")
+                except Exception as e:
+                    print("Previous track error:", e)
+                    speak("I couldn't go to the previous song.")
+
+                continue
+
+
+            if command in [
+                "play or pause",
+                "play pause",
+                "toggle music",
+                "toggle spotify"
+            ]:
+
+                success = tools.media_play_pause()
+
+                if success:
+                    speak("Done.")
+                else:
+                    speak("I couldn't control Spotify.")
+
+                continue
+
+            if command in [
+                "minimize", "minimize window",
+                "minimize this window", "minimize this"
+            ]:
+                tools.minimize_window()
+                speak("Minimized.")
+                continue
+
+            if command in [
+                "maximize", "maximize window",
+                "maximize this window", "maximize this"
+            ]:
+                tools.maximize_window()
+                speak("Maximized.")
+                continue
+
+            if command in [
+                "close window", "close this window", "close this"
+            ]:
+                tools.close_current_window()
+                continue
+
+            if command in [
+                "refresh", "refresh page", "refresh this page"
+            ]:
+                tools.refresh_window()
+                speak("Refreshed.")
+                continue
+
+            if command in [
+                "switch window", "switch windows", "next window"
+            ]:
+                tools.switch_window()
+                continue
+
+            if command in [
+                "lock pc", "lock my pc",
+                "lock computer", "lock my computer"
+            ]:
+                speak("Locking your computer.")
+                time.sleep(0.2)
+                tools.lock_pc()
+                return
+
+
+            # =================================================
+            # EXIT
+            # =================================================
+
+            if command in [
+                "exit",
+                "quit",
+                "shutdown",
+                "goodbye",
+                "shut down"
+            ]:
+
+                speak(
+                    "Goodbye."
+                )
+
+                try:
+
+                    memory.close_memory()
+
+                except Exception as e:
+
+                    print(
+                        "Memory close error:",
+                        e
+                    )
+
+                close_edge()
+
+                return
+
+            # =================================================
+            # ALL EXISTING COMMAND LOGIC
+            # =================================================
+
+            update_hud(
+                "THINKING",
+                "Processing your command..."
+            )
+
+            # -------------------------------------------------
+            # REMEMBER
+            # -------------------------------------------------
+
+            if command.startswith("remember"):
+
+                information = user_input[
+                    len("remember"):
+                ].strip()
+
+                if information:
+
+                    try:
+
+                        memory.save_memory(
+                            information
+                        )
+
+                        messages.append(
+                            {
+                                "role":
+                                    "user",
+                                "content":
+                                    user_input
+                            }
+                        )
+
+                        messages.append(
+                            {
+                                "role":
+                                    "assistant",
+                                "content":
+                                    "I'll remember that."
+                            }
+                        )
+
+                        speak(
+                            "I'll remember that."
+                        )
+
+                    except Exception as e:
+
+                        print(
+                            "Memory error:",
+                            e
+                        )
+
+                        speak(
+                            "I couldn't save that memory."
+                        )
+
+                else:
+
+                    speak(
+                        "What would you like me to remember?"
+                    )
+
+                continue
+
+            # -------------------------------------------------
+            # DATE + TIME
+            # -------------------------------------------------
+
+            if (
+                "date" in command
+                and "time" in command
+            ):
+
+                current_datetime = tools.get_datetime()
+
+                speak(
+                    f"It is {current_datetime}."
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # DATE
+            # -------------------------------------------------
+
+            if "date" in command:
+
+                today = tools.get_date()
+
+                speak(
+                    f"Today is {today}."
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # TIME
+            # -------------------------------------------------
+
+            if "time" in command:
+
+                current_time = tools.get_time()
+
+                speak(
+                    f"The current time is {current_time}."
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # FAST WEBSITE COMMANDS
+            # -------------------------------------------------
+
+            direct_websites = {
+                "youtube":
+                    tools.open_youtube,
+                "google":
+                    tools.open_google,
+            }
+
+            for website_name, website_url in WEBSITE_MAP.items():
+
+                if website_name not in direct_websites:
+
+                    direct_websites[
+                        website_name
+                    ] = (
+                        lambda url=website_url:
+                        tools.open_website(url)
+                    )
+
+            direct_website_name = None
+
+            # =================================================
+            # SPOTIFY DESKTOP
+            # =================================================
+            # Spotify is installed as a desktop application.
+            # Handle Spotify BEFORE the generic website opener.
+            # =================================================
+
+            if command in [
+                "spotify",
+                "open spotify",
+                "launch spotify",
+                "start spotify",
+                "open the spotify app",
+                "launch the spotify app",
+                "start the spotify app"
+            ]:
+
+                update_hud(
+                    "THINKING",
+                    "Opening Spotify Desktop..."
+                )
+
+                success = launch_spotify_desktop()
+
+                if success:
+
+                    speak(
+                        "Opening Spotify."
+                    )
+
+                else:
+
+                    speak(
+                        "I couldn't open Spotify Desktop."
+                    )
+
+                continue
+
+
+            # =================================================
+            # GENERIC WEBSITE ROUTING
+            # =================================================
+
+            for name in direct_websites:
+
+                # Spotify MUST NOT go through the browser.
+                if name == "spotify":
+                    continue
+
+                if (
+                    command == name
+                    or command == f"open {name}"
+                    or command == f"launch {name}"
+                    or command == f"go to {name}"
+                    or command == f"take me to {name}"
+                ):
+
+                    direct_website_name = name
+
+                    break
+
+            if direct_website_name:
+
+                update_hud(
+                    "THINKING",
+                    f"Opening {direct_website_name.title()}..."
+                )
+
+                success = direct_websites[
+                    direct_website_name
+                ]()
+
+                if success:
+
+                    speak(
+                        f"Opening {direct_website_name}."
+                    )
+
+                else:
+
+                    speak(
+                        f"I couldn't open {direct_website_name}."
+                    )
+
+                update_hud(
+                    "LISTENING",
+                    "Listening for your command..."
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # FAST SEARCH
+            # -------------------------------------------------
+
+            search_match = re.match(
+                r"^(?:search|google|look up|find)\s+(.+)$",
+                command,
+                re.IGNORECASE
+            )
+
+            if search_match:
+
+                query = search_match.group(1).strip()
+
+                if query:
+
+                    try:
+
+                        from urllib.parse import quote_plus
+
+                        search_url = (
+                            "https://www.google.com/search?q="
+                            +
+                            quote_plus(query)
+                        )
+
+                        update_hud(
+                            "THINKING",
+                            f"Searching Google for: {query}"
+                        )
+
+                        success = tools.open_website(
+                                search_url
+                            )
+
+                        if success:
+
+                            speak(
+                                f"Searching Google for {query}."
+                            )
+
+                        else:
+
+                            speak(
+                                "I couldn't open the search."
+                            )
+
+                        update_hud(
+                            "LISTENING",
+                            "Listening for your command..."
+                        )
+
+                    except Exception as e:
+
+                        print(
+                            "Search error:",
+                            e
+                        )
+
+                        speak(
+                            "I couldn't perform that search."
+                        )
+
+                continue
+
+            # -------------------------------------------------
+            # DOWNLOADS
+            # -------------------------------------------------
+
+            if (
+                "open downloads" in command
+                or "open my downloads" in command
+                or "launch downloads" in command
+            ):
+
+                success = tools.open_downloads()
+
+                if success:
+
+                    speak(
+                        "Your Downloads folder is open."
+                    )
+
+                else:
+
+                    speak(
+                        "I couldn't open your Downloads folder."
+                    )
+
+                continue
+
+            # -------------------------------------------------
+            # CHROME
+            # -------------------------------------------------
+
+            if (
+                "open chrome" in command
+                or "launch chrome" in command
+            ):
+
+                success = tools.open_chrome()
+
+                if success:
+
+                    speak(
+                        "Chrome is open."
+                    )
+
+                else:
+
+                    speak(
+                        "I couldn't open Chrome."
+                    )
+
+                continue
+
+            # -------------------------------------------------
+            # VS CODE
+            # -------------------------------------------------
+
+            if (
+                "open vs code" in command
+                or "open vscode" in command
+                or "launch vs code" in command
+                or "launch vscode" in command
+            ):
+
+                success = tools.open_vscode()
+
+                if success:
+
+                    speak(
+                        "Visual Studio Code is open."
+                    )
+
+                else:
+
+                    speak(
+                        "I couldn't open Visual Studio Code."
+                    )
+
+                continue
+
+            # -------------------------------------------------
+            # FAST LOCAL INTENT`r`n            # Local command routing is handled above.`r`n            # Normal conversational requests go directly to the AI router.`r`n`r`n            # NORMAL AI
+
+            print(
+                "DEBUG: SENDING COMMAND TO GEMINI"
+            )
+
+            update_hud(
+                "THINKING",
+                "Thinking about your question..."
+            )
+
+            speak("I'm thinking...")
+
+            messages.append(
+                {
+                    "role": "user",
+                    "content": user_input
+                }
+            )
+
+            try:
+
+                if MOOD_MODE == "savage":
+
+                    personality = (
+                        "Be bold, blunt, sarcastic and confident. "
+                        "Lightly roast the user when appropriate. "
+                        "Stay useful and do not be genuinely hateful."
+                    )
+
+                elif MOOD_MODE == "roast":
+
+                    personality = (
+                        "Be playful, witty and teasing. "
+                        "Lightly roast the user when appropriate. "
+                        "Keep it fun and helpful."
+                    )
+
+                else:
+
+                    personality = (
+                        "Be helpful, natural, confident and concise."
+                    )
+
+                conversation = []
+
+                for msg in messages:
+
+                    role = msg.get(
+                        "role",
+                        "user"
+                    )
+
+                    content = msg.get(
+                        "content",
+                        ""
+                    )
+
+                    if role == "system":
+
+                        conversation.append(
+                            "SYSTEM: " + content
+                        )
+
+                    elif role == "assistant":
+
+                        conversation.append(
+                            "SPIDEY: " + content
+                        )
+
+                    else:
+
+                        conversation.append(
+                            "USER: " + content
+                        )
+
+                gemini_prompt = (
+                    "You are SPIDEY, a personal AI assistant.\n"
+                    + personality
+                    + "\n\nConversation history:\n"
+                    + "\n".join(conversation)
+                    + "\n\nAnswer the latest user message naturally."
+                )
+
+                print(
+                    "AI ROUTER: SELECTING MODEL"
+                )
+
+                if not ai_router.is_complex_request(user_input):
+                    print("AI ROUTER: STREAMING GROQ RESPONSE")
+                    reply = speak_streaming_groq(gemini_prompt)
+                    ai_provider = "groq_streaming"
+                else:
+                    print("AI ROUTER: COMPLEX REQUEST → GEMINI")
+                    reply = ask_gemini(gemini_prompt)
+                    ai_provider = "gemini"
+
+                print(
+                    "AI PROVIDER:",
+                    ai_provider
+                )
+
+                print(
+                    "AI RESPONSE RECEIVED"
+                )
+
+
+                print(
+                    "GEMINI REPLY:",
+                    repr(reply)
+                )
+
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": reply
+                    }
+                )
+
+                update_hud(
+                    "SPEAKING",
+                    f"Spidey: {reply}"
+                )
+
+                if ai_provider != "groq_streaming":
+                    speak(reply)
+
+                update_hud(
+                    "LISTENING",
+                    "Listening for your command..."
+                )
+
+            except Exception as e:
+
+                import traceback
+
+                print()
+                print("======================================")
+                print("SPIDEY GEMINI ERROR")
+                print("======================================")
+                print(
+                    "ERROR TYPE:",
+                    type(e).__name__
+                )
+                print(
+                    "ERROR:",
+                    repr(e)
+                )
+                print("--------------------------------------")
+
+                traceback.print_exc()
+
+                print("======================================")
+                print()
+
+                speak(
+                    "Sorry, I encountered an error while processing your request."
+                )
+
+                update_hud(
+                    "LISTENING",
+                    "Listening for your command..."
+                )
+
+
+# ============================================================
+# START SPIDEY + HUD
+# ============================================================
+
+if __name__ == "__main__":
+
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    hud_process = None
+
+    hud_script = (
+        Path(__file__).parent
+        / "spidey_web"
+        / "run_spidey_hud_native.py"
+    )
+
+    print()
+    print("Starting SPIDEY HUD...")
+    print()
+
+    try:
+
+        hud_process = subprocess.Popen(
+            [
+                sys.executable,
+                str(hud_script)
+            ]
+        )
+
+        # Give the HUD server a moment to start.
+        time.sleep(4.0)
+        # Announce online only after the main HUD has loaded.
+        speak("SPIDEY IS ONLINE")
+
+        run_spidey()
+
+    except KeyboardInterrupt:
+
+        print()
+        print("SPIDEY interrupted by user.")
+
+    except Exception as e:
+
+        print()
+        print("SPIDEY error:", e)
+
+    finally:
+
+        print()
+        print("Stopping SPIDEY HUD...")
+
+        if hud_process is not None:
+
+            try:
+
+                if hud_process.poll() is None:
+
+                    hud_process.terminate()
+
+                    try:
+
+                        hud_process.wait(
+                            timeout=3
+                        )
+
+                    except subprocess.TimeoutExpired:
+
+                        print(
+                            "HUD did not stop normally. Forcing shutdown..."
+                        )
+
+                        hud_process.kill()
+
+                        hud_process.wait(
+                            timeout=2
+                        )
+
+            except Exception as e:
+
+                print(
+                    "HUD shutdown error:",
+                    e
+                )
+
+        print("SPIDEY OFFLINE.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,91 @@
+
+
+def speak(text):
+
+    print("SPIDEY:", text)
+
+    filename = f"jarvis_{uuid.uuid4().hex}.mp3"
+
+    clear_chup()
+
+    try:
+
+        asyncio.run(
+            create_voice(
+                text,
+                filename
+            )
+        )
+
+        if chup_requested():
+
+            clear_chup()
+            update_hud(
+                "LISTENING",
+                "Speech stopped ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â listening..."
+            )
+            return
+
+        pygame.mixer.init()
+
+        pygame.mixer.music.load(
+            filename
+        )
+
+        pygame.mixer.music.play()
+
+        update_hud(
+            "SPEAKING",
+            "Spidey is speaking..."
+        )
+
+        while pygame.mixer.music.get_busy():
+
+            if chup_requested():
+
+                print(
+                    "SPIDEY: CHUP button pressed."
+                )
+
+                pygame.mixer.music.stop()
+                clear_chup()
+
+                update_hud(
+                    "LISTENING",
+                    "Speech stopped ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â listening..."
+                )
+
+                break
+
+            time.sleep(0.03)
+
+    except Exception as e:
+
+        print(
+            "Voice error:",
+            e
+        )
+
+    finally:
+
+        try:
+            pygame.mixer.music.stop()
+        except Exception:
+            pass
+
+        try:
+            pygame.mixer.quit()
+        except Exception:
+            pass
+
+        clear_chup()
+
+        try:
+            if os.path.exists(filename):
+                os.remove(filename)
+        except Exception:
+            pass
+
+
+# ============================================================
+# VOICE INPUT

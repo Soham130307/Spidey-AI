@@ -1,0 +1,136 @@
+"""
+SPIDEY Productivity Features
+
+Current features:
+1. Meeting Notes Summarizer
+2. Action Item Generator
+
+The AI function is injected from main.py so this module does
+not create a second AI client or cause circular imports.
+"""
+
+from typing import Callable
+
+
+def _clean(text: str) -> str:
+    return " ".join(str(text).strip().split())
+
+
+def _call_ai(ai_call: Callable[[str], str], prompt: str) -> str:
+    if not callable(ai_call):
+        raise ValueError("AI callback is not available.")
+
+    result = ai_call(prompt)
+
+    if result is None:
+        raise RuntimeError("AI returned no response.")
+
+    result = str(result).strip()
+
+    if not result:
+        raise RuntimeError("AI returned an empty response.")
+
+    return result
+
+
+def summarize_meeting_notes(
+    notes: str,
+    ai_call: Callable[[str], str],
+) -> str:
+    """
+    Summarize meeting notes using only the supplied notes.
+    """
+
+    notes = str(notes).strip()
+
+    if not notes:
+        raise ValueError("Meeting notes are empty.")
+
+    prompt = f"""
+You are SPIDEY's Meeting Notes Summarizer.
+
+Summarize the meeting notes below using ONLY the information
+provided in the notes. Do not invent names, decisions, dates,
+deadlines, or facts.
+
+Return a concise, useful structure:
+
+MEETING SUMMARY
+- 2-5 bullet points covering the main discussion.
+
+KEY DECISIONS
+- List decisions that are explicitly present.
+- If none are present, say: None specified.
+
+IMPORTANT DISCUSSION POINTS
+- List the most important topics.
+
+NEXT STEPS
+- List explicitly mentioned next steps.
+- If none are present, say: None specified.
+
+Use "Not specified" whenever the notes do not contain the
+required information.
+
+MEETING NOTES:
+----------------
+{notes}
+----------------
+"""
+
+    return _call_ai(ai_call, prompt)
+
+
+def generate_action_items(
+    notes: str,
+    ai_call: Callable[[str], str],
+) -> str:
+    """
+    Extract actionable tasks from meeting notes.
+    """
+
+    notes = str(notes).strip()
+
+    if not notes:
+        raise ValueError("Meeting notes are empty.")
+
+    prompt = f"""
+You are SPIDEY's Action Item Generator.
+
+Extract actionable tasks ONLY from the meeting notes below.
+
+Do NOT invent tasks, owners, deadlines, priorities, or other
+information that is not supported by the notes.
+
+Return:
+
+ACTION ITEMS
+
+1. Task:
+   Owner:
+   Deadline:
+   Priority:
+
+2. Task:
+   Owner:
+   Deadline:
+   Priority:
+
+Continue for all clearly identifiable action items.
+
+Rules:
+- Owner should be "Not specified" if absent.
+- Deadline should be "Not specified" if absent.
+- Priority should be "Not specified" unless the notes clearly
+  indicate a priority.
+- Do not turn general discussion into an action item.
+- If there are no actionable tasks, say:
+  "No clear action items found."
+
+MEETING NOTES:
+----------------
+{notes}
+----------------
+"""
+
+    return _call_ai(ai_call, prompt)

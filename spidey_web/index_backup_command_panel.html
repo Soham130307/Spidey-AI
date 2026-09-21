@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPIDEY // AI CORE</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="scanlines"></div>
+<div class="grid"></div>
+<div class="vignette"></div>
+
+<div id="particles"></div>
+
+<main class="hud">
+
+<header class="topbar">
+
+    <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">SPIDEY</span>
+        <small>PERSONAL AI CORE</small>
+    </div>
+
+    <div class="system-state">
+        <span class="online-dot"></span>
+        ONLINE
+    </div>
+
+    <div class="top-time" id="topTime">
+        00:00:00
+    </div>
+
+</header>
+
+
+<section class="layout">
+
+
+<aside class="side left">
+
+<section class="hud-panel">
+
+    <div class="panel-title">
+        SYSTEM STATUS
+        <span>01</span>
+    </div>
+
+    <div class="status-main">
+        ONLINE
+    </div>
+
+    <div class="data-row">
+        <label>VOICE ENGINE</label>
+        <b id="voiceState">STANDBY</b>
+    </div>
+
+    <div class="data-row">
+        <label>CORE LINK</label>
+        <b>CONNECTED</b>
+    </div>
+
+    <div class="data-row">
+        <label>SECURITY</label>
+        <b>LOCAL / PRIVATE</b>
+    </div>
+
+    <div class="meter">
+        <span id="coreMeter"></span>
+    </div>
+
+</section>
+
+
+<section class="hud-panel telemetry">
+
+    <div class="panel-title">
+        SYSTEM TELEMETRY
+        <span>02</span>
+    </div>
+
+    <div class="metric">
+        <label>CPU</label>
+        <strong id="cpu">--%</strong>
+        <div><span id="cpuBar"></span></div>
+    </div>
+
+    <div class="metric">
+        <label>MEMORY</label>
+        <strong id="ram">--%</strong>
+        <div><span id="ramBar"></span></div>
+    </div>
+
+    <div class="metric">
+        <label>DISK</label>
+        <strong id="disk">--%</strong>
+        <div><span id="diskBar"></span></div>
+    </div>
+
+    <div class="data-row">
+        <label>UPTIME</label>
+        <b id="uptime">00:00:00</b>
+    </div>
+
+</section>
+
+
+<section class="hud-panel network">
+
+    <div class="panel-title">
+        NETWORK ACTIVITY
+        <span>03</span>
+    </div>
+
+    <div class="network-value">
+        ↓ <b id="down">0</b> KB/s
+    </div>
+
+    <div class="network-value">
+        ↑ <b id="up">0</b> KB/s
+    </div>
+
+    <canvas id="networkGraph"></canvas>
+
+</section>
+
+</aside>
+
+
+<!-- CENTER -->
+
+<section class="core-zone">
+
+    <div class="core-heading">
+        S P I D E Y
+    </div>
+
+    <div class="core-subtitle">
+        YOUR PERSONAL AI ASSISTANT
+    </div>
+
+
+    <div class="reactor">
+
+        <div class="orbit orbit-a"></div>
+        <div class="orbit orbit-b"></div>
+        <div class="orbit orbit-c"></div>
+
+        <div class="sweep"></div>
+
+        <div class="target top"></div>
+        <div class="target right"></div>
+        <div class="target bottom"></div>
+        <div class="target left"></div>
+
+
+        <!-- ACTUAL SPIDEY LOGO -->
+
+        <img
+            class="spidey-logo"
+            src="spidey_spider_logo.png"
+            alt="Spidey Spider Logo"
+        >
+
+
+        <div class="core-dot"></div>
+
+        <div class="ring-label rl1">
+            CORE // 01
+        </div>
+
+        <div class="ring-label rl2">
+            SCAN // ACTIVE
+        </div>
+
+        <div class="ring-label rl3">
+            AI // READY
+        </div>
+
+    </div>
+
+
+    <div class="state" id="mainState">
+        S T A N D B Y
+    </div>
+
+    <div class="wake">
+        SAY <b>HEY SPIDEY</b> TO ACTIVATE
+    </div>
+
+
+    <div class="command-box">
+
+        <span class="prompt">›</span>
+
+        <input
+            id="command"
+            placeholder="Speak a command..."
+            autocomplete="off"
+        >
+
+        <span class="mic">
+            MIC
+        </span>
+
+    </div>
+
+    <canvas id="wave"></canvas>
+
+</section>
+
+
+<!-- RIGHT -->
+
+<aside class="side right">
+
+<section class="hud-panel clock-panel">
+
+    <div class="panel-title">
+        LOCAL TIME
+        <span>04</span>
+    </div>
+
+    <div class="big-time" id="bigTime">
+        00:00:00
+    </div>
+
+    <div class="date" id="date">
+        --
+    </div>
+
+    <div class="tiny">
+        SYSTEM CLOCK // LOCAL
+    </div>
+
+</section>
+
+
+<section class="hud-panel log-panel">
+
+    <div class="panel-title">
+        SPIDEY LOG
+        <span>05</span>
+    </div>
+
+    <div id="log" class="log"></div>
+
+</section>
+
+
+<section class="hud-panel quick">
+
+    <div class="panel-title">
+        QUICK COMMANDS
+        <span>06</span>
+    </div>
+
+    <button data-command="Open YouTube">
+        › OPEN YOUTUBE
+    </button>
+
+    <button data-command="Search Google">
+        › SEARCH GOOGLE
+    </button>
+
+    <button data-command="Open Discord">
+        › OPEN DISCORD
+    </button>
+
+    <button data-command="Open Calculator">
+        › OPEN CALCULATOR
+    </button>
+
+    <button data-command="System Information">
+        › SYSTEM INFORMATION
+    </button>
+
+</section>
+
+</aside>
+
+</section>
+
+
+<footer class="footer">
+
+    <div>
+        <span class="red">♫ NOW PLAYING</span>
+        <small>NO MEDIA DETECTED</small>
+    </div>
+
+    <div class="activation">
+        <span>◉</span>
+        SAY <b>HEY SPIDEY</b> // ACTIVATE
+    </div>
+
+    <div class="weather">
+        <span class="red">WEATHER</span>
+        <small>--°C &nbsp; --</small>
+    </div>
+
+</footer>
+
+</main>
+
+<script src="app.js"></script>
+
+</body>
+</html>
